@@ -1,0 +1,8 @@
+# Results. run_all.sh writes here by default; never commit generated panels.
+ady3001_output/
+output/
+*.Rout
+.Rhistory
+__pycache__/
+*.pyc
+.DS_Store

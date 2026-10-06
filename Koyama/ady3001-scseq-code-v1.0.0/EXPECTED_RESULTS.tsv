@@ -1,0 +1,6 @@
+script	manuscript_figures	cells_loaded	cells_final	clusters	panels	note
+Exp160/01_fig4_figS6.R	Fig 4B-D, Fig S6A-E	15288	8032	7	40	QC filter only (percent.mt < 40)
+Exp160/02_figS7.R	Fig S7B-E	23841	7478	6	26	QC filter only (percent.mt < 40)
+Exp649/01_figS10_qc.R	Fig S10A-D	30391	9135	12	14	QC filter gives 10363; 9135 is after AbSeq de-multiplexing (965 multiplets, 263 no-tag)
+Exp649/02_fig7_figS11.R	Fig 7B-F, Fig S11A-C	9135	6828	9	39	ISC subset of the 9135
+Exp80/02_figS3_from_deposit.R	Fig S3A-C	4544	4544	n/a (grouped by sample)	5	1334+1600+871+739; no QC filter

@@ -1,0 +1,280 @@
+#!/usr/bin/env Rscript
+## ===========================================================================
+## Exp649 - Figure 7 and Figure S11  (Lgr5+ ISC subset)
+##
+## Source: Exp649/rmd/Exp649_Final.Rmd, chunks "- isolate ISCs" (second half),
+##   "- fsgea function", "Figure 6 Paper", "Supp Figure 1 Paper",
+##   "GSEA Figures / Supp Figure 2 Paper", "Supp Figure 3 Paper".
+##   (The Rmd's "Figure 6" is Figure 7 in the accepted manuscript, and its
+##    "Supp Figure 1/2/3" are S11; the numbering shifted during revision.)
+##
+## Input is the object written by 01_figS10_qc.R.
+##
+## ISC selection, exactly as the Fig S10 legend states it: drop the Muc2+ goblet
+## clusters (5, 6, 8), the Trpm5+ tuft cluster (10) and the lowest-Lgr5 cluster
+## (9), keeping 0, 1, 2, 3, 4, 7, 11 - which is what the Rmd hardcodes.
+##
+## The rule is applied by MEASUREMENT and then checked against those numbers. In
+## practice the rebuild reproduces the published clustering cluster-for-cluster
+## (all twelve sizes identical), so the two agree; but if a future run renumbers,
+## this prints the disagreement instead of silently subsetting the wrong cells.
+##
+## Usage: Rscript 02_fig7_figS11.R [--source deposit|original|rebuilt] [--which RSEC|DBEC]
+## ===========================================================================
+
+suppressPackageStartupMessages({
+  library(Seurat); library(ggplot2); library(dplyr); library(tibble)
+  library(scCustomize); library(ggpubr); library(Matrix)
+  library(presto); library(fgsea); library(msigdbr)
+})
+
+## --- path resolution (Zenodo package) ---------------------------------------
+## These lines replace the hardcoded lab paths of the working copy. Every other
+## change to this file is also path-only; no analysis line differs from the
+## script that produced the published figures. The complete diff against the
+## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
+## than taking this comment's word for it.
+local({
+  a <- commandArgs(FALSE)
+  f <- sub("^--file=", "", a[grep("^--file=", a)])
+  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
+  repeat {
+    if (file.exists(file.path(d, ".ady3001_root"))) break
+    p <- dirname(d)
+    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
+    d <- p
+  }
+  assign("PKG", d, envir = .GlobalEnv)
+})
+source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+
+args <- commandArgs(trailingOnly = TRUE)
+getopt <- function(f, d) { i <- match(f, args); if (is.na(i)) d else args[i + 1L] }
+SOURCE <- getopt("--source", "deposit"); WHICH <- getopt("--which", "RSEC")
+
+IN  <- file.path(OUT_ROOT, "Exp649",
+                 paste0("outS10_", SOURCE, "_", WHICH), "cds", "all_cells_processed.RDS")
+OUT <- file.path(OUT_ROOT, "Exp649", paste0("outFig7_", SOURCE, "_", WHICH))
+FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+## Create and VERIFY. dir.create(showWarnings = FALSE) hides a failure, and a
+## failure here is silent until the first pdf() call dies hundreds of lines later.
+for (d in c(FIG, CDS)) {
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(d)) stop("could not create output directory: ", d)
+}
+if (!file.exists(IN)) stop("run 01_figS10_qc.R first; missing ", IN)
+
+theme_set(bd_theme()); rna_cols <- bd_rna_cols(); clus_cols36 <- bd_clus_cols36
+SEED <- 1234
+## A "/" in the name would make pdf() try to write into a non-existent
+## subdirectory, which fails only when that panel is reached. Reject it here.
+pdfout <- function(n, w = 6, h = 6) {
+  if (grepl("/", n, fixed = TRUE)) stop("panel name contains '/': ", n)
+  pdf(file.path(FIG, paste0(n, ".pdf")), width = w, height = h)
+}
+
+cat("== Exp649 Fig 7 / S11 ==\n   source:", SOURCE, "\n")
+seu <- readRDS(IN)
+cat("   cells in:", ncol(seu), " clusters:", nlevels(seu$seurat_clusters), "\n")
+
+## --- ISC selection ----------------------------------------------------------
+DefaultAssay(seu) <- "RNA"
+x <- FetchData(seu, c("Lgr5", "Muc2", "Trpm5"))
+cl <- seu$seurat_clusters
+prof <- data.frame(cluster = levels(cl),
+                   Lgr5  = as.numeric(tapply(x$Lgr5,  cl, mean)),
+                   Muc2  = as.numeric(tapply(x$Muc2,  cl, mean)),
+                   Trpm5 = as.numeric(tapply(x$Trpm5, cl, mean)))
+## Goblet / Tuft clusters stand out by an order of magnitude; use a gap rule on
+## the sorted means rather than an absolute number, so it does not depend on
+## normalisation scale. The chosen sets are printed for checking.
+gapcut <- function(v) { s <- sort(v); g <- diff(s); if (!length(g)) return(Inf)
+                        s[which.max(g)] + max(g) / 2 }
+goblet <- prof$cluster[prof$Muc2  > gapcut(prof$Muc2)]
+tuft   <- prof$cluster[prof$Trpm5 > gapcut(prof$Trpm5)]
+lowest <- prof$cluster[which.min(prof$Lgr5)]
+drop   <- unique(c(goblet, tuft, lowest))
+keep   <- setdiff(prof$cluster, drop)
+PUBLISHED_KEEP <- c("0","1","2","3","4","7","11")
+cat("   Muc2-high (goblet):", paste(sort(goblet), collapse = ","), "   (published: 5,6,8)\n")
+cat("   Trpm5-high (tuft) :", paste(sort(tuft),   collapse = ","), "   (published: 10)\n")
+cat("   lowest Lgr5       :", lowest, "   (published: 9)\n")
+cat("   KEPT              :", paste(sort(keep), collapse = ","),
+    "   (Rmd kept 0,1,2,3,4,7,11)\n")
+if (setequal(keep, PUBLISHED_KEEP)) {
+  cat("   selection matches the published ISC set\n")
+} else {
+  warning("ISC selection differs from the published set (", paste(keep, collapse=","),
+          " vs ", paste(PUBLISHED_KEEP, collapse=","), ") - figures below are NOT ",
+          "a reproduction of Fig 7 / S11")
+  cat("   *** SELECTION DIFFERS FROM THE PUBLISHED SET ***\n")
+}
+write.csv(prof, file.path(OUT, "cluster_profile_Lgr5_Muc2_Trpm5.csv"), row.names = FALSE)
+writeLines(c(paste("goblet:", paste(goblet, collapse = ",")),
+             paste("tuft:",   paste(tuft,   collapse = ",")),
+             paste("lowest_Lgr5:", lowest),
+             paste("kept:",   paste(keep,   collapse = ",")),
+             "Rmd kept: 0,1,2,3,4,7,11"),
+           file.path(OUT, "isc_selection.txt"))
+
+seu <- seu[, cl %in% keep]
+cat("   ISC cells:", ncol(seu), "\n")
+
+## re-embed the ISC subset (Rmd: dims 1:25, resolution 0.5)
+seu <- bd_process(seu, dims = 1:25, resolution = 0.5, seed = SEED)
+seu <- bd_process_adt(seu)
+saveRDS(seu, file.path(CDS, "isc_processed.RDS"))
+cat("   ISC clusters:", nlevels(seu$seurat_clusters), "  (published: 9)\n")
+
+## --- Figure 7B/D ------------------------------------------------------------
+pdfout("[Fig7D] Clusters")
+print(DimPlot_scCustom(seu, colors_use = clus_cols36, pt.size = 1.5, label = TRUE,
+                       label.size = 8, repel = FALSE, label.box = TRUE) +
+      scale_fill_manual(values = rep("white", nlevels(seu$seurat_clusters)))); dev.off()
+pdfout("[Fig7B] Groups", 7, 6)
+print(DimPlot_scCustom(seu, group.by = "group", colors_use = clus_cols36, pt.size = 1.5)); dev.off()
+
+for (g in c("Female_IFNGRneg","Female_IFNGRpos","Male_IFNGRneg","Male_IFNGRpos")) {
+  seu[[paste0("group_", g)]] <- seu$group == g
+  sub <- seu[, seu$group == g]
+  pdfout(paste0("[Fig7B] group_", g))
+  print(DimPlot_scCustom(sub, group.by = paste0("group_", g), colors_use = "Gray", pt.size = 1))
+  dev.off()
+}
+
+## --- Figure 7E / S11A - MHC-II genes and protein ----------------------------
+DefaultAssay(seu) <- "RNA"
+for (g in c("Ciita","H2-Aa","H2-Ab1","Mki67")) {
+  pdfout(paste0("[Fig7E] ", g))
+  print(FeaturePlot_scCustom(seu, features = g, label = FALSE, pt.size = 2,
+                             max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols) & NoAxes())
+  dev.off()
+}
+DefaultAssay(seu) <- "ADT"
+pdfout("[Fig7E] I-A-I-E")
+print(FeaturePlot_scCustom(seu, features = "I-A-I-E", label = FALSE, pt.size = 2,
+                           max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols) & NoAxes())
+dev.off()
+
+## by cluster - the legend's clusters 4/5/6 comparisons
+lv <- levels(seu$seurat_clusters)
+cl456 <- intersect(c("4","5","6"), lv)
+cmp_cl <- if (length(cl456) == 3) list(c("4","5"), c("5","6"), c("4","6")) else
+          { warning("clusters 4/5/6 not all present; per-cluster brackets skipped"); NULL }
+for (f in c("Ciita","H2-Aa","H2-Ab1")) {
+  DefaultAssay(seu) <- "RNA"
+  pdfout(paste0("[FigS11B] ", f, " Exp Level"))
+  p <- VlnPlot(seu, features = f, pt.size = 0, cols = clus_cols36) +
+       stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) + ylim(0, 7)
+  if (!is.null(cmp_cl)) p <- p + stat_compare_means(comparisons = cmp_cl, method = "wilcox.test")
+  print(p); dev.off()
+}
+DefaultAssay(seu) <- "ADT"
+pdfout("[FigS11B] I-A-I-E Exp Level")
+p <- VlnPlot(seu, features = "I-A-I-E", pt.size = 0, cols = clus_cols36) +
+     stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) + ylim(0, 7)
+if (!is.null(cmp_cl)) p <- p + stat_compare_means(comparisons = cmp_cl, method = "wilcox.test")
+print(p); dev.off()
+
+## by group - S11A
+cmp_gp <- list(c("Female_IFNGRneg","Female_IFNGRpos"), c("Male_IFNGRneg","Male_IFNGRpos"),
+               c("Female_IFNGRneg","Male_IFNGRneg"),   c("Female_IFNGRpos","Male_IFNGRpos"),
+               c("Female_IFNGRneg","Male_IFNGRpos"),   c("Female_IFNGRpos","Male_IFNGRneg"))
+for (f in c("Ciita","H2-Aa","H2-Ab1")) {
+  DefaultAssay(seu) <- "RNA"
+  pdfout(paste0("[FigS11A] ", f, " (by group)"))
+  print(VlnPlot(seu, features = f, group.by = "group", pt.size = 0) +
+        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+        stat_compare_means(comparisons = cmp_gp, method = "wilcox.test") + ylim(0, 7)); dev.off()
+}
+DefaultAssay(seu) <- "ADT"
+pdfout("[FigS11A] I-A-I-E (by group)")
+print(VlnPlot(seu, features = "I-A-I-E", group.by = "group", pt.size = 0) +
+      stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+      stat_compare_means(comparisons = cmp_gp, method = "wilcox.test") + ylim(0, 7)); dev.off()
+
+## GOCC MHC class II module score by group
+DefaultAssay(seu) <- "RNA"
+m_cc <- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:CC") %>%
+  dplyr::select(gs_name, gene_symbol)
+bac <- m_cc[m_cc$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", ]$gene_symbol
+set.seed(SEED); seu <- AddModuleScore(seu, features = list(bac), name = "GOCC_MHC_CLASSII")
+pdfout("[FigS11A] GOCC_MHC_CLASS_II_PROTEIN_COMPLEX Plot")
+print(FeaturePlot_scCustom(seu, features = "GOCC_MHC_CLASSII1", label = FALSE, pt.size = 2,
+                           max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols) & NoAxes()); dev.off()
+pdfout("[FigS11A] GOCC_MHC_CLASS_II_PROTEIN_COMPLEX Violin")
+print(VlnPlot(seu, features = "GOCC_MHC_CLASSII1", group.by = "group", pt.size = 0) +
+      stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+      stat_compare_means(comparisons = cmp_gp, method = "wilcox.test") + ylim(0, 4)); dev.off()
+
+## --- Hallmark module scores (Fig 7B inset, S11) -----------------------------
+m_h <- msigdbr(species = "Mus musculus", category = "H") %>% dplyr::select(gs_name, gene_symbol)
+hall <- c(H_IFN = "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+          H_IFNA = "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+          H_OXPHOS = "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+          H_TNF = "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+          H_TGFB = "HALLMARK_TGF_BETA_SIGNALING",
+          H_E2F = "HALLMARK_E2F_TARGETS",
+          H_G2M = "HALLMARK_G2M_CHECKPOINT",
+          H_GLYCOLYSIS = "HALLMARK_GLYCOLYSIS",
+          H_WNT = "HALLMARK_WNT_BETA_CATENIN_SIGNALING",
+          H_HEDGEHOG = "HALLMARK_HEDGEHOG_SIGNALING")
+for (nm in names(hall)) {
+  genes <- m_h[m_h$gs_name == hall[[nm]], ]$gene_symbol
+  if (!length(genes)) { warning("empty gene set ", hall[[nm]]); next }
+  set.seed(SEED); seu <- AddModuleScore(seu, features = list(genes), name = nm)
+  pdfout(paste0("[Fig7B-S11] ", nm))
+  print(FeaturePlot_scCustom(seu, features = paste0(nm, "1"), label = FALSE, pt.size = 2,
+                             max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols) & NoAxes())
+  dev.off()
+}
+
+## --- fgsea bar graphs (Fig 7C, 7F) -------------------------------------------
+## Verbatim transcription of plot_fsgeaTEST_bargraph() from the Rmd.
+plot_fsgea_bargraph <- function(genedb, genelist_wilcox, cluster, dbname,
+                                NES_cutoff, q_value, height = 6, width = 6) {
+  set.seed(SEED)
+  fgsea_sets <- genedb %>% split(x = .$gene_symbol, f = .$gs_name)
+  genes <- genelist_wilcox %>%
+    mutate(auc = auc - 0.5) %>%
+    group_by(feature) %>%
+    dplyr::filter(group == cluster) %>%
+    arrange(desc(auc)) %>%
+    dplyr::select(feature, auc)
+  ranks <- deframe(genes)
+  fgseaRes <- fgsea(fgsea_sets, stats = ranks, nperm = 1000000, nproc = 8)
+  fgseaResTidy <- fgseaRes %>% as_tibble() %>% arrange(desc(NES))
+  write.csv(do.call(cbind, fgseaResTidy[, 1:5]),
+            file.path(OUT, paste0("GSEA - ", dbname, " - Group ", cluster, ".csv")))
+  fgseaResTidy$pathway <- gsub("HALLMARK_", "", fgseaResTidy$pathway)
+  pdf(file.path(FIG, paste0("[GSEA] ", dbname, "_Gp", cluster,
+                            " q", q_value, " NES", NES_cutoff, ".pdf")), width, height)
+  print(ggplot(fgseaResTidy[fgseaResTidy$padj < q_value & abs(fgseaResTidy$NES) > NES_cutoff, ],
+               aes(reorder(pathway, NES), NES)) +
+        geom_col(aes(fill = ES > 0)) + coord_flip() +
+        labs(x = "Pathway", y = "Normalized Enrichment Score",
+             title = paste0("q<", q_value, ", |NES|>", NES_cutoff)) + theme_classic())
+  dev.off()
+  invisible(ranks)
+}
+
+DefaultAssay(seu) <- "RNA"
+## Fig 7C: male IFNGRpos vs male IFNGRneg
+g_mm <- wilcoxauc(seu, "group", groups_use = c("Male_IFNGRpos", "Male_IFNGRneg"))
+plot_fsgea_bargraph(m_h, g_mm, "Male_IFNGRpos", "Hallmark MvM IFNGRneg v pos", 0, 0.2)
+plot_fsgea_bargraph(m_h, g_mm, "Male_IFNGRneg", "Hallmark MvM IFNGRpos v neg", 0, 0.2)
+
+## Fig 7F and S11C: clusters 5 vs 6, and 4 vs 5, 4 vs 6
+if (length(cl456) == 3) {
+  for (pair in list(c("4","5"), c("4","6"), c("5","6"))) {
+    g <- wilcoxauc(seu, "seurat_clusters", groups_use = pair)
+    for (side in pair)
+      plot_fsgea_bargraph(m_h, g, side, paste0("Hallmark Set ", pair[1], "v", pair[2]), 0, 0.2)
+  }
+} else warning("clusters 4/5/6 not all present; cluster GSEA skipped")
+
+write.csv(as.data.frame(table(cluster = seu$seurat_clusters, group = seu$group)),
+          file.path(OUT, "cluster_by_group.csv"), row.names = FALSE)
+saveRDS(seu, file.path(CDS, "isc_scored.RDS"))
+bd_session(file.path(OUT, "sessionInfo.txt"))
+cat("== done ->", OUT, "\n")

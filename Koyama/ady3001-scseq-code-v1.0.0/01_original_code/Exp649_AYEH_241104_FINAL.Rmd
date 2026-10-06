@@ -1,0 +1,3201 @@
+## Used module R/4.4.0 (as of 10/30/24) #Try to use the same version as all dependencies (e.g. package installations) rely on it!
+---
+title: "Exp649_AYEH_241104"
+author: ACY
+output: html_myeebook
+editor_options: 
+  chunk_output_type: console
+---
+
+## Note the Script "Exp649_Load.Rmd" generates the 220820_processed.RDS
+
+## BD Handbook: /fh/fast/hill_g/Motoko/BD_Single_Cell_Genomics_Bioinformatics_Handbook.pdf
+## References - gencodevM19-20181206.gtf | GRCm38-PhiX-gencodevM19-20181206.tar.gz | Exp649_Abseq_and_CD326_ref_07132022.fasta
+
+## Output from this experiment:  2 carts; Cart1 and Cart 2.  Example output for Cart 1:
+# Cart1_RSEC_ReadsPerCell_Unfiltered.csv.gz
+# Cart1_RSEC_ReadsPerCell.csv
+# Cart1_RSEC_MolsPerCell_Unfiltered.csv.gz
+# Cart1_RSEC_MolsPerCell.csv
+# Cart1_DBEC_ReadsPerCell_Unfiltered.csv.gz
+# Cart1_DBEC_ReadsPerCell.csv
+# Cart1_DBEC_MolsPerCell_Unfiltered.csv.gz
+# Cart1_DBEC_MolsPerCell.csv
+## BD Handkbook page 17: To remove the effect of UMI errors on molecule counting, BD Biosciences has developed a set of UMI adjustment algorithms.  UMI errors that are single base substitution errors are identified and adjusted to the parent UMI barcode using recursive substitution error correction (RSEC). For targeted sequencing analysis, other UMI errors derived from library preparation steps or sequencing base deletions are later adjusted using distribution-based error correction (DBEC). **THUS DBEC is more stringent than RSEC.
+## BD Handkbook page 53: Note: It is generally recommended to use <sample_name>_DBEC_MolsPerCell.csv for clustering analysis. Read counts for DBEC, read counts for RSEC, and molecule counts for RSEC are provided for reference. The RSEC files can be used when sequencing depth is so low that most genes do not pass the threshold for the DBEC molecular identifier adjustment algorithm to be applied; that is, low_depth in <sample_name>_UMI_Adjusted_Stats.csv.
+
+
+## Per Rhapsody Manual: Note that targeted sequencing analysis uses RSEC and DBEC, while WTA sequencing analysis uses RSEC only. 
+## Per Rhapsody Manual: Figure 6. Example results after applying RSEC and DBEC algorithms. For targeted sequencing analysis, if we consider only raw UMIs, the apparent total number of molecules continues to rise with sequencing depth, because the presence of sequencing and PCR errors contribute to unique UMIs. RSEC removes artifact molecules from single base substitutions in the UMI sequence. Further adjustment by DBEC removes artifact molecules originated from PCR errors. As a result, the number of molecules stabilizes with additional sequencing, indicating the library is sequenced to saturation.
+
+
+```{r, warning=FALSE, message=FALSE, warning=FALSE, echo=F}
+set.seed(1234)
+#graphics.off()
+#rm(list=ls())
+#knitr::opts_chunk$set(fig.width=8, fig.height=6, dpi=300,echo=FALSE, warning=FALSE, message=FALSE)
+#knitr::opts_chunk$set(dev.args=list(bg="transparent"))
+#ROOT_DIR<-"~/Fred Hutchinson Cancer Research Center/GVHD - Hill Furlan Collaboration - General"
+setwd("/fh/fast/hill_g/Motoko/Exp649/figs")
+ROOT_DIR<-"/fh/fast/hill_g/Motoko"
+stem<-"Exp649"
+DATA_DIR <- file.path(ROOT_DIR, stem, "data")      # SPECIFY HERE
+RES_DIR  <- file.path(ROOT_DIR, stem, "res")     # SPECIFY HERE
+RMD_DIR  <- file.path(ROOT_DIR, stem, "rmd")     # SPECIFY HERE
+CDS_DIR <- file.path(ROOT_DIR, stem, "cds")
+FIG_DIR <- file.path(ROOT_DIR,  stem, "figs")
+
+ENR_DIR<-file.path(ROOT_DIR, "Bioinformatics Resources", "MSigDB")
+SCRIPT_DIR<-file.path(ROOT_DIR, "develop", "SfScripts", "m3")
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(SeuratWrappers) # Needed to run monocle3; install as follows: devtools::install_github('satijalab/seurat-wrappers')
+  library(scCustomize) # Needed to run SetUP.R (/fh/fast/hill_g/Albert/scSeq_Analyses/Setup Files)
+    #Error: ERROR: no permission to install to directory ‘/home/ayeh/R/x86_64-pc-linux-gnu-library/4.3’
+  library(SCpubr) 
+  #library(monocle3)
+  #library(m3addon) #plugin for monocle
+  library(ggplot2)
+  library(ggplot2)
+  library(patchwork)
+  library(RColorBrewer)
+  library(tidyverse)
+  library(scCustomize)
+  library(ArchR)
+  library(viridis)
+  library(ggpubr)
+  library(Matrix)
+  # devtools::install_github("immunogenomics/presto")
+  
+  #dyn.load('/app/software/ArrayFire/3.8.1/lib64/libaf.so.3')
+  #library(RcppArrayFire)
+  #library(viewmastR) # https://github.com/scfurl/viewmaster
+})
+
+#hg38<-getBSgenome("BSgenome.Hsapiens.UCSC.hg38" )
+
+xfun::pkg_load2(c('base64enc', 'htmltools', 'mime'))
+#install.packages("tidyverse")
+#devtools::install_github("waltno/viewmaster")
+
+SFtheme<-theme_bw(base_size=14) + 
+  theme(panel.background = element_rect(fill = "transparent",colour = NA), # or theme_blank()
+    panel.grid.minor = element_blank(), 
+    panel.grid.major = element_blank(),
+    legend.background = element_rect(fill = "transparent"),
+    legend.box.background = element_rect(fill = "transparent"), 
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent",colour = NA))
+theme_set(SFtheme)
+
+
+clus_cols12 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78")
+clus_cols16 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78", 
+                 "#98df8a", "#ff9896", "#c5b0d5", "#c49c94")
+clus_cols24 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78", 
+                 "#98df8a", "#ff9896", "#c5b0d5", "#c49c94", "#f7b6d2", "#c7c7c7", 
+                 "#dbdb8d", "#9edae5", "#ad494a", "#8c6d31", "#e7ba52", "#17becf")
+clus_cols36 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78",
+                 "#98df8a", "#ff9896", "#c5b0d5", "#c49c94", "#f7b6d2", "#c7c7c7", 
+                 "#dbdb8d", "#9edae5", "#ad494a", "#8c6d31", "#e7ba52", "#17becf",
+                 "#1f78b4", "#33a02c", "#fb9a99", "#e31a1c", "#fdbf6f", "#cab2d6",
+                 "#6a3d9a", "#ff8c00", "#b15928", "#41ab5d", "#f03b20", "#807dba")
+
+#pie(rep(1, length(col)), col = col)
+datestamp<-"241108"
+
+rna_cols<-paletteContinuous(n=8)[c(1:3, 6:8)]
+
+```
+
+
+
+## Albert added this 11.04.24
+```{r - loads RSEC data, echo=FALSE, include = TRUE}
+## this uses RSEC
+f<-list.files(file.path(DATA_DIR, paste0("cart", 1:2)), full.names = T)[grep("RSEC_MolsPerCell", list.files(file.path(DATA_DIR, paste0("cart", 1:2))))] #This line lists all files in two directories, cart1 and cart2, inside DATA_DIR.
+files<-f[c(2,4)]
+
+dat<-lapply(files, function(file){
+t(as.matrix(data.table::fread(file), rownames=1))}) # For each file in files, it reads the file into a matrix using data.table::fread. The t() function transposes each matrix, making rows into columns and columns into rows. dat will contain two transposed matrices from the selected files.
+
+rn<-intersect(rownames(dat[[1]]), rownames(dat[[2]])) # rn is a list of row names common to both matrices.
+rn<-sapply(strsplit(rn, "\\|"), "[[", 1)  # The strsplit(rn, "\\|") splits each row name by the "|" delimiter. sapply(..., "[[", 1) extracts the first part before the delimiter for each name.
+
+dat2<-lapply(dat, function(mat){
+  rownames(mat)<-sapply(strsplit(rownames(mat), "\\|"), "[[", 1)
+  mat[rn,]
+}) #This modifies the row names of each matrix by keeping only the first part (before the "|"). Each matrix is then subsetted to include only the rows that match the names in rn, creating a new list dat2 with the processed matrices.
+
+colnames(dat2[[1]])<-paste0("cart1_", colnames(dat2[[1]]))
+colnames(dat2[[2]])<-paste0("cart2_", colnames(dat2[[2]]))
+mat<-Matrix(do.call(cbind, dat2), sparse=T) # The two matrices in dat2 are combined column-wise (i.e., bound together as columns) using do.call(cbind, dat2). The Matrix() function with sparse=T creates a sparse matrix from the combined data, saving memory by storing only non-zero entries.
+colnames(mat)<-make.unique(colnames(mat)) # This line ensures that all column names in the combined matrix mat are unique by appending numbers where duplicate names are found.
+
+rmat<-mat[8:dim(mat)[1],] # rmat contains the main GEX data starting from the 8th row.
+pmat<-mat[1:7,] # pmat contains the first 7 rows and holds the ADT data
+
+seu<-CreateSeuratObject(counts = rmat)
+seu$ADT<-CreateAssayObject(counts = pmat[,match(colnames(pmat), Cells(seu))])
+
+#DefaultAssay(seu)
+## ADT Features:
+# [1] "CD326:G8.8-AMM2281" "CD326:G8.8-AMM2294" "CD326:G8.8-AMM2295" "CD326"             
+# [5] "CD45.2"             "H-2Kb"              "I-A-I-E"  
+
+seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = 3000)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu), npcs = 50)
+#ElbowPlot(seu, 50)
+seu <- FindNeighbors(seu, dims = 1:40)
+seu <- FindClusters(seu, resolution = 0.5)
+seu <- RunUMAP(seu, dims = 1:40)
+
+DimPlot(seu)
+seu$cart<-strsplit(Cells(seu), "_") %>% sapply("[[", 1)
+seu[["percent.mt"]] <- PercentageFeatureSet(seu, pattern = "^mt-")
+seu$logUMI<-log10(seu$nCount_RNA)
+seu$log_RNA<-log10(seu$nCount_RNA)
+
+
+## For QC presentation ##
+VlnPlot(seu, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu, group.by = "cart")
+FeaturePlot_scCustom(seu, features = "percent.mt")
+####
+
+
+## Now filter by RNA count
+
+#seu_sub <- subset(seu, subset = log_RNA > 3.25 & log_RNA < 4.25 & percent.mt < 40) 
+seu_sub <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40) # This gives us 10,363 samples after filtering
+seu_sub <- NormalizeData(seu_sub, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_sub <- FindVariableFeatures(seu_sub, selection.method = "vst", nfeatures = 3000)
+seu_sub <- ScaleData(seu_sub)
+seu_sub <- RunPCA(seu_sub, features = VariableFeatures(object = seu_sub), npcs = 50)
+#ElbowPlot(seu_sub, 50)
+seu_sub <- FindNeighbors(seu_sub, dims = 1:40)
+seu_sub <- FindClusters(seu_sub, resolution = 0.5)
+seu_sub <- RunUMAP(seu_sub, dims = 1:40)
+
+## Data output for QC ##
+DimPlot(seu_sub)
+VlnPlot(seu_sub, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_sub, group.by = "cart")
+FeaturePlot_scCustom(seu_sub, features = "percent.mt")
+#####
+
+## Normalize ADT Data ##
+DefaultAssay(seu_sub)<-"ADT"
+seu_sub <- NormalizeData(seu_sub, normalization.method = "CLR")
+seu_sub <- ScaleData(seu_sub)
+
+DimPlot(seu_sub, cols = clus_cols36)
+
+
+#### Now choose only the ISC cells #####
+ab<-"CD326"
+dat<-as.data.frame(seu_sub@assays$ADT@data[ab,])
+colnames(dat)<-"value"
+ggplot(dat, aes(x=value))+geom_density()
+seu_sub@meta.data$Ab1<-seu_sub@assays$ADT@data[ab,]>1
+
+ab<-"CD326:G8.8-AMM2281"
+dat<-as.data.frame(seu_sub@assays$ADT@data[ab,])
+colnames(dat)<-"value"
+ggplot(dat, aes(x=value))+geom_density()
+seu_sub@meta.data$Ab2<-seu_sub@assays$ADT@data[ab,]>1
+
+ab<-"CD326:G8.8-AMM2294"
+dat<-as.data.frame(seu_sub@assays$ADT@data[ab,])
+colnames(dat)<-"value"
+ggplot(dat, aes(x=value))+geom_density()
+seu_sub@meta.data$Ab3<-seu_sub@assays$ADT@data[ab,]>1
+
+ab<-"CD326:G8.8-AMM2295"
+dat<-as.data.frame(seu_sub@assays$ADT@data[ab,])
+colnames(dat)<-"value"
+ggplot(dat, aes(x=value))+geom_density()
+seu_sub@meta.data$Ab4<-seu_sub@assays$ADT@data[ab,]>1
+
+seu_sub@meta.data$multiplet<-rowSums(seu_sub@meta.data[,colnames(seu_sub@meta.data) %in% paste0("Ab", 1:4)]+1-1)>1
+seu_sub@meta.data$Ab_not_found<-rowSums(seu_sub@meta.data[,colnames(seu_sub@meta.data) %in% paste0("Ab", 1:4)]+1-1)<1
+
+DimPlot(seu_sub, group.by = "multiplet")
+DimPlot(seu_sub, group.by = "Ab_not_found")
+
+seu_sub<-seu_sub[,!seu_sub$multiplet & !seu_sub$Ab_not_found] # Now we are down to 9,135 cells from 10,363 cells
+#####
+seu_sub$group<-c("Female_IFNGRpos", "Female_IFNGRneg", "Male_IFNGRpos", "Male_IFNGRneg")[apply(seu_sub@meta.data[,colnames(seu_sub@meta.data) %in% paste0("Ab", 1:4)], 1, which.max)]
+
+DimPlot(seu_sub, group.by = "group")
+
+#### Temporary Save Point Here ####
+#The RDS file below has removed multiplets / those without proper hashtags, as well as filter by RNA counts and mito genes.  
+#Also, 4 groups (female IFNy +/- and male IFNy +/-) have been added
+saveRDS(seu_sub, file.path(CDS_DIR, "241104_processed.RDS"))
+####
+```
+
+```{r - modification for DBEC - gives essentially the same outcomes as RSEC so will just use RSEC, echo=FALSE, include=FALSE}
+
+## this uses DBEC
+f<-list.files(file.path(DATA_DIR, paste0("cart", 1:2)), full.names = T)[grep("DBEC_MolsPerCell", list.files(file.path(DATA_DIR, paste0("cart", 1:2))))] #This line lists all files in two directories, cart1 and cart2, inside DATA_DIR.
+files<-f[c(2,4)]
+
+dat<-lapply(files, function(file){
+t(as.matrix(data.table::fread(file), rownames=1))}) # For each file in files, it reads the file into a matrix using data.table::fread. The t() function transposes each matrix, making rows into columns and columns into rows. dat will contain two transposed matrices from the selected files.
+
+rn<-intersect(rownames(dat[[1]]), rownames(dat[[2]])) # rn is a list of row names common to both matrices.
+rn<-sapply(strsplit(rn, "\\|"), "[[", 1)  # The strsplit(rn, "\\|") splits each row name by the "|" delimiter. sapply(..., "[[", 1) extracts the first part before the delimiter for each name.
+
+dat2<-lapply(dat, function(mat){
+  rownames(mat)<-sapply(strsplit(rownames(mat), "\\|"), "[[", 1)
+  mat[rn,]
+}) #This modifies the row names of each matrix by keeping only the first part (before the "|"). Each matrix is then subsetted to include only the rows that match the names in rn, creating a new list dat2 with the processed matrices.
+
+colnames(dat2[[1]])<-paste0("cart1_", colnames(dat2[[1]]))
+colnames(dat2[[2]])<-paste0("cart2_", colnames(dat2[[2]]))
+mat<-Matrix(do.call(cbind, dat2), sparse=T) # The two matrices in dat2 are combined column-wise (i.e., bound together as columns) using do.call(cbind, dat2). The Matrix() function with sparse=T creates a sparse matrix from the combined data, saving memory by storing only non-zero entries.
+colnames(mat)<-make.unique(colnames(mat)) # This line ensures that all column names in the combined matrix mat are unique by appending numbers where duplicate names are found.
+
+
+# meta<-DataFrame(cell.names=colnames(mat), sample_no=unlist(lapply(1:8, function(x) {
+#   rep(names(folders)[[x]], ncol(dat[[x]]))})), row.names = colnames(mat))
+# meta$sample <- factor(meta$sample_no)
+# levels(meta$sample)<-c(rep("Spl", 2),rep("mLN", 2),rep("LP", 2),rep("EL", 2))
+# genes[[1]]
+
+rmat<-mat[8:dim(mat)[1],] #rmat contains the main data starting from the 8th row.
+pmat<-mat[1:7,] #pmat contains the first 7 rows, potentially holding different or specific information.
+
+#genes<-DataFrame(id = rn,  gene_short_name=rn, row.names = rn)
+#rownames(mat)
+
+
+seu_DBEC<-CreateSeuratObject(counts = rmat)
+seu_DBEC$ADT<-CreateAssayObject(counts = pmat[,match(colnames(pmat), Cells(seu_DBEC))])
+#DefaultAssay(seu_DBEC)
+
+seu_DBEC <- NormalizeData(seu_DBEC, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_DBEC <- FindVariableFeatures(seu_DBEC, selection.method = "vst", nfeatures = 3000)
+seu_DBEC <- ScaleData(seu_DBEC)
+seu_DBEC <- RunPCA(seu_DBEC, features = VariableFeatures(object = seu_DBEC), npcs = 50)
+#ElbowPlot(seu_DBEC, 50)
+seu_DBEC <- FindNeighbors(seu_DBEC, dims = 1:40)
+seu_DBEC <- FindClusters(seu_DBEC, resolution = 0.4)
+seu_DBEC <- RunUMAP(seu_DBEC, dims = 1:40)
+
+DimPlot(seu_DBEC)
+
+seu_DBEC$cart<-strsplit(Cells(seu_DBEC), "_") %>% sapply("[[", 1)
+seu_DBEC[["percent.mt"]] <- PercentageFeatureSet(seu_DBEC, pattern = "^mt-")
+seu_DBEC$logUMI<-log10(seu_DBEC$nCount_RNA)
+seu_DBEC$log_RNA<-log10(seu_DBEC$nCount_RNA)
+
+
+## For QC presentation ##
+VlnPlot(seu_DBEC, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_DBEC, group.by = "cart")
+FeaturePlot_scCustom(seu_DBEC, features = "percent.mt")
+####
+
+#DefaultAssay(seu)<-"RNA"
+#add percent.mt to metadata
+#seu$percent.mt <- PercentageFeatureSet(seu, pattern = "^mt-") #This is the percentage of mitochondrial genes (low-quality / dying cells often have higher %; common cutoff is 5)
+
+# Visualize QC metrics as a violin plot
+#VlnPlot(seu, features = c("log_RNA"), pt.size = 0)
+#VlnPlot(seu, features  =c("percent.mt"), pt.size = 0) #+ylim(c(0,15))
+#FeatureScatter(seu, feature1 = "nCount_RNA", feature2 = "percent.mt") # Simple scatter function
+
+#subset RNA data, these are  standard parameters
+#seu <- subset(seu, subset = log_RNA > 3.25 & log_RNA < 4.25 & percent.mt < 5)
+
+```
+
+```{r - isolate ISCs, echo=FALSE, include=TRUE}
+seu<-readRDS(file.path(CDS_DIR, "241104_processed.RDS"))
+
+# [1] "CD326:G8.8-AMM2281" "CD326:G8.8-AMM2294" "CD326:G8.8-AMM2295" "CD326"             
+# [5] "CD45.2"             "H-2Kb"              "I-A-I-E"  
+
+# Now, we select the group that has ISCs, as denoted by Lgr5+
+
+DefaultAssay(seu)<-"ADT"
+
+# Generate the DimPlot and then add custom labels
+DimPlot(seu, label = TRUE, label.size = 5, repel = TRUE, label.box = TRUE) + scale_fill_manual(values = rep("white",12))  # Ensure label boxes are white
+DefaultAssay(seu)<-"RNA"
+FeaturePlot_scCustom(seu, features = "Lgr5")
+VlnPlot(seu, features = "Lgr5", pt.size = 0.1) 
+RidgePlot(seu, features = "Lgr5", ncol = 2)
+DotPlot(seu, features = "Lgr5") + RotatedAxis()
+
+VlnPlot(seu, features = c("Lgr5"), pt.size = 0)+ stat_summary(fun = "mean", geom='point', size = 25, colour = "black", shape = 95) + ylim(0, 7)
+
+markers_7_vs_8 <- FindMarkers(seu, ident.1 = 7, ident.2 = 8) #Helped identify Muc2 (clusters 5,6,8) = goblet cells
+FeaturePlot_scCustom(seu, features = "Muc2")
+DotPlot(seu, features = c("Muc2","Lgr5")) + RotatedAxis()
+
+markers_4_vs_10 <- FindMarkers(seu, ident.1 = 4, ident.2 = 10) #Helped identify Trpm5 (cluster 10) = tuft cells
+DotPlot(seu, features = c("Lgr5","Muc2","Trpm5")) + RotatedAxis()
+
+
+# Choose Lgr5+ clusters, which includes 0,1,2,3,4,7,11 (these are higher in Lgr5 and also low in Muc2 (goblet cells), Trpm5 (tuft cells)
+seu<-seu[,seu$seurat_clusters %in% c(0,1,2,3,4,7,11)]
+
+DefaultAssay(seu)<-"RNA"
+seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = 3000)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu), npcs = 50)
+
+ElbowPlot(seu, 50)
+seu <- FindNeighbors(seu, dims = 1:25)
+seu <- FindClusters(seu, resolution = 0.5)
+seu <- RunUMAP(seu, dims = 1:25)
+DimPlot_scCustom(seu, group.by = "group", colors_use = clus_cols36, pt.size = 1) 
+
+DimPlot_scCustom(seu, colors_use = clus_cols36, pt.size = 1, label = TRUE, label.size = 5, repel = TRUE, label.box = TRUE) + scale_fill_manual(values = rep("white",12)) 
+
+#### Temporary Save Point Here ####
+#In addition to the filtering from 241104_processed.RDS, this version also removes tuft cells, goblet cells
+saveRDS(seu, file.path(CDS_DIR, "241105_processed.RDS"))
+####
+```
+
+```{r - analysis of ISCs, echo=FALSE, include=TRUE}
+seu<-readRDS(file.path(CDS_DIR, "241105_processed.RDS"))
+FeaturePlot_scCustom(seu, features = "Reg3b", pt.size = 1)
+DimPlot_scCustom(seu, group.by = "group", colors_use = clus_cols36, pt.size = 1) 
+
+FeaturePlot_scCustom(seu, features = "Reg3b", pt.size = 1)
+DefaultAssay(seu)<-"ADT"
+FeaturePlot_scCustom(seu, features = "I-A-I-E", pt.size = 1)
+
+
+```
+
+
+##----- GSEA Analysis 11/5/24 -----##
+```{r - fsgea function; run this before GSEA analysis, echo=FALSE, include=TRUE}
+plot_fsgeaTEST_bargraph<-function(genedb, genelist_wilcox, cluster, dbname, NES_cutoff, q_value, height=10, width=10){
+#This is the fsgea we use for final analysis.  The mutate AUC-0.5 makes the comparisons symmetric
+#The NES cutoff plots only gene sets above a certain NES
+  set.seed(1234)
+  #print(paste0("q-value: ",q_value))
+  #q_value<-0.2
+  #genedb<- m_t2g
+  #genelist_wilcox <- seu.genes46
+  #cluster <- c("4")
+  #head(genelist_wilcox)
+  #dplyr::count(genelist_wilcox,group)
+  
+  fgsea_sets<- genedb %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+  
+  #genes45<- genelist_wilcox %>%
+    #mutate(auc = auc - 0.5) %>%
+    #group_by(feature) %>% # should be 2 rows per feature (group 4 and group 5)
+    #mutate(adj = rnorm(n = 1, sd = 0.0001), auc = if_else(group == "4", auc + adj, auc - adj)) %>%
+    #arrange(group, desc(auc)) %>%
+    #dplyr::select(group, feature, auc)
+    
+  #genes <- genes45 %>% filter(group == cluster) %>% dplyr::select(-group)
+  genes <- genelist_wilcox %>%
+    mutate(auc = auc - 0.5) %>%
+    group_by(feature) %>%
+#    mutate(adj = rnorm(n = 1, sd = 0.0001), auc = if_else(group == cluster, auc + adj, auc - adj)) %>%
+    dplyr::filter(group == cluster) %>%
+    arrange(desc(auc)) %>% 
+    dplyr::select(feature, auc) 
+  
+  ranks<- deframe(genes) #Restructures based on tibble package
+  #ranks[ranks>0] <- 2*ranks[ranks>0]
+
+  fgseaRes<- fgsea(fgsea_sets, stats = ranks, nperm = 1000000, nproc=8)
+  
+  fgseaResTidy <- fgseaRes %>%
+    as_tibble() %>%
+    arrange(desc(NES))
+  results <- do.call(cbind, fgseaResTidy[,1:5])
+  
+  smallest<- order(fgseaResTidy$NES)<11 & fgseaResTidy$pval <0.05 #smallest NES with p-values < 0.05
+  largest <- order(fgseaResTidy$NES)>max(order(fgseaResTidy$NES))-10 & fgseaResTidy$pval <0.05 #largest NES with p-values < 0.05
+
+  write.csv(results, file.path(FIG_DIR, paste0("[Final] GSEA - ", dbname, " - Group ", cluster, ".csv")))
+  fgseaResTidy$pathway<-gsub("HALLMARK_","",fgseaResTidy$pathway)
+  
+  pdf(file.path(FIG_DIR, paste0("[Final] - GSEA_Enrichment" , dbname,  "_Gp", cluster," ALL sigp with NES cutoff_", NES_cutoff, ".pdf")), width, height)
+  print(ggplot(fgseaResTidy[fgseaResTidy$padj<q_value & abs(fgseaResTidy$NES)>NES_cutoff,], aes(reorder(pathway, NES), NES)) + geom_col(aes(fill= ES > 0)) + coord_flip() + labs(x="Pathway", y="Normalized Enrichment Score", title=paste0("Pathways with q<",q_value, "with NES cutoff: ", NES_cutoff)) + theme_classic())
+  dev.off()
+  return(ranks)
+}
+```
+
+
+##----- Other Paper Figures 11/5/24 -----##
+```{r Figure 6 Paper}
+
+
+#----- FOR PUBLICATION / MOTOKO -----#
+#----Other custom UMAP plots requested by Motoko ----#
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Clusters", ".pdf")), width=6, height=6)
+DimPlot_scCustom(seu, colors_use = clus_cols36, pt.size = 1.5, label = TRUE, label.size = 8, repel = FALSE, label.box = TRUE) + scale_fill_manual(values = rep("white",12)) 
+dev.off()
+pdf(file.path(FIG_DIR, paste0("[Final] - Groups", ".pdf")), width=7, height=6)
+DimPlot_scCustom(seu, group.by = "group", colors_use = clus_cols36, pt.size = 1.5) 
+dev.off()
+
+
+DefaultAssay(seu)<-"RNA"
+pdf(file.path(FIG_DIR, paste0("[Final] - Ciita", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Ciita", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H2-Aa", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "H2-Aa", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H2-Ab1", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "H2-Ab1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Mki67", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Mki67", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+
+### Protein Plots #####
+DefaultAssay(seu) <- "ADT"
+rownames(seu@assays$ADT)
+pdf(file.path(FIG_DIR, paste0("[Final] - I-A-I-E", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "I-A-I-E", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+
+
+my_comparisons <- list( c("4", "5"), c("5", "6"), c("4", "6"))
+pdf(file.path(FIG_DIR, paste0("[Final] - Ciita Exp Level", ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("Ciita"), pt.size = 0, cols = clus_cols36)+ stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H2-Aa Exp Level", ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("H2-Aa"), pt.size = 0, cols = clus_cols36)+ stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H2-Ab1 Exp Level", ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("H2-Ab1"), pt.size = 0, cols = clus_cols36)+ stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - I-A-I-E Exp Level", ".pdf")), width=6, height=6)
+DefaultAssay(seu) <- "ADT"
+VlnPlot(seu, features = c("I-A-I-E"), pt.size = 0, cols = clus_cols36)+ stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+```
+
+```{r Supp Figure 1 Paper}
+### Comparison by groups ###
+my_comparisons <- list( c("Female_IFNGRneg", "Female_IFNGRpos"), 
+                        c("Male_IFNGRneg", "Male_IFNGRpos"), 
+                        c("Female_IFNGRneg", "Male_IFNGRneg"), 
+                        c("Female_IFNGRpos","Male_IFNGRpos"), 
+                        c("Female_IFNGRneg","Male_IFNGRpos"), 
+                        c("Female_IFNGRpos","Male_IFNGRneg"))
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Ciita (by group)" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("Ciita"), group.by="group", pt.size = 0) + stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H2-Aa (by group)" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("H2-Aa"), group.by="group", pt.size = 0) + stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H2-Ab1 (by group)" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("H2-Ab1"), group.by="group", pt.size = 0) + stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - I-A-I-E (by group)" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("I-A-I-E"), group.by="group", pt.size = 0) + stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+
+
+m_t2g_C <- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:CC") %>% dplyr::select(gs_name, gene_symbol) 
+bac<-m_t2g_C[m_t2g_C$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX",]$gene_symbol 
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOCC_MHC_CLASSII")
+
+pdf(file.path(FIG_DIR, paste0("[Final] - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX Plot" , ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "GOCC_MHC_CLASSII1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX Violin" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("GOCC_MHC_CLASSII1"), group.by="group", pt.size = 0) + stat_summary(fun.y = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 4)
+dev.off()
+
+
+
+```
+
+```{r GSEA Figures / Supp Figure 2 Paper}
+
+#========== Figure 5E GSEA ==========#
+#---- GSEA analysis using fsgea ----#
+#https://crazyhottommy.github.io/scRNA-seq-workshop-Fall-2019/scRNAseq_workshop_3.html
+library(presto)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(fgsea)
+library(msigdbr)
+
+seu.genes <- wilcoxauc(seu, 'seurat_clusters')
+seu.genes2 <- wilcoxauc(seu,'group')
+
+# for GSEA, we need the information of all genes, Seurat is just too slow if we test
+# all 20,000 genes. instead let's try presto which performs a fast Wilcoxon rank sum test 
+
+#---- Hallmark Gene Sets ----#
+m_t2g <- msigdbr(species = "Mus musculus", category = "H") %>% dplyr::select(gs_name, gene_symbol) 
+fgsea_sets<- m_t2g %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+#----- Comparing between groups -----#
+
+
+#----- FOR PUBLICATION / MOTOKO -----#
+
+seu.genes45 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5'))
+# Mutate with AUC = AUC-0.5, specify q-value
+fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+
+seu.genes46 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','6'))
+# Mutate with AUC = AUC-0.5, specify q-value
+fsgea_46_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes46,"4","Hallmark Set 4v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+fsgea_46_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes46,"6","Hallmark Set 4v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+
+seu.genes56 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('5','6'))
+fsgea_56_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes56,"5","Hallmark Set 5v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+fsgea_56_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes56,"6","Hallmark Set 5v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+
+
+seu.genes456 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5','6'))
+fsgea_456_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes456,"4","Hallmark Set 4v5_6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_IFN1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_INTERFERON_GAMMA_RESPONSE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_IFN")
+FeaturePlot_scCustom(seu, features = "H_IFN1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+## Plot Groups individually 
+seu$group_Male_IFNGRneg <- seu$group=="Male_IFNGRneg"
+pdf(file.path(FIG_DIR, paste0("[Final] - group_Male_IFNGRneg", ".pdf")), width=6, height=6)
+seu_gray <- subset(seu, subset = group_Male_IFNGRneg == "TRUE")
+DimPlot_scCustom(seu_gray, group.by = "group_Male_IFNGRneg", colors_use = "Gray", pt.size = 1)
+dev.off()
+
+seu$group_Female_IFNGRneg <- seu$group=="Female_IFNGRneg"
+pdf(file.path(FIG_DIR, paste0("[Final] - group_Female_IFNGRneg", ".pdf")), width=6, height=6)
+seu_gray <- subset(seu, subset = group_Female_IFNGRneg == "TRUE")
+DimPlot_scCustom(seu_gray, group.by = "group_Female_IFNGRneg", colors_use = "Gray", pt.size = 1)
+dev.off()
+
+seu$group_Male_IFNGRpos <- seu$group=="Male_IFNGRpos"
+pdf(file.path(FIG_DIR, paste0("[Final] - group_Male_IFNGRpos", ".pdf")), width=6, height=6)
+seu_gray <- subset(seu, subset = group_Male_IFNGRpos == "TRUE")
+DimPlot_scCustom(seu_gray, group.by = "group_Male_IFNGRpos", colors_use = "Gray", pt.size = 1)
+dev.off()
+
+seu$group_Female_IFNGRpos <- seu$group=="Female_IFNGRpos"
+pdf(file.path(FIG_DIR, paste0("[Final] - group_Female_IFNGRpos", ".pdf")), width=6, height=6)
+seu_gray <- subset(seu, subset = group_Female_IFNGRpos == "TRUE")
+DimPlot_scCustom(seu_gray, group.by = "group_Female_IFNGRpos", colors_use = "Gray", pt.size = 1)
+dev.off()
+
+seu.genes_groups <- wilcoxauc(seu,'group', groups_use=c('Male_IFNGRpos','Male_IFNGRneg'))
+    # Mutate with AUC = AUC-0.5
+    fsgea_groups_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes_groups,"Male_IFNGRpos","Hallmark Set MvM IFNGRneg v pos Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_groups_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes_groups,"Male_IFNGRneg","Hallmark Set MvM IFNGRpos v neg Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+
+    
+#----- FOR PUBLICATION / MOTOKO -----#
+```
+
+```{r Supp Figure 3 Paper}
+
+
+#------ Plot gene signatures onto map ------#
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_OXPHOS1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_OXPHOS")
+FeaturePlot_scCustom(seu, features = "H_OXPHOS1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_E2F1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_E2F_TARGETS",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_E2F")
+FeaturePlot_scCustom(seu, features = "H_E2F1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_KRAS_UP1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_KRAS_SIGNALING_UP",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_KRAS_UP")
+FeaturePlot_scCustom(seu, features = "H_KRAS_UP1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_KRAS_DOWN1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_KRAS_SIGNALING_DN",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_KRAS_DOWN")
+FeaturePlot_scCustom(seu, features = "H_KRAS_DOWN1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_IFN1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_INTERFERON_GAMMA_RESPONSE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_IFN")
+FeaturePlot_scCustom(seu, features = "H_IFN1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_GLYCOLYSIS1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_GLYCOLYSIS",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_GLYCOLYSIS")
+FeaturePlot_scCustom(seu, features = "H_GLYCOLYSIS1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_MITO1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_MITOTIC_SPINDLE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_MITO")
+FeaturePlot_scCustom(seu, features = "H_MITO1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_TNF1", ".pdf")), width=6, height=6)
+rna_cols<-paletteContinuous(n=8)[c(1:3, 6:8)]
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_TNFA_SIGNALING_VIA_NFKB",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_TNF")
+FeaturePlot_scCustom(seu, features = "H_TNF1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_HEDGEHOG1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_HEDGEHOG_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_HEDGEHOG")
+FeaturePlot_scCustom(seu, features = "H_HEDGEHOG1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_IFNA1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_INTERFERON_ALPHA_RESPONSE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_IFNA")
+FeaturePlot_scCustom(seu, features = "H_IFNA1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_FAT1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_FATTY_ACID_METABOLISM",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_FAT")
+FeaturePlot_scCustom(seu, features = "H_FAT1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_G2M1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_G2M_CHECKPOINT",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_G2M")
+FeaturePlot_scCustom(seu, features = "H_G2M1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_WNT1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_WNT_BETA_CATENIN_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_WNT")
+FeaturePlot_scCustom(seu, features = "H_WNT1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_TGFB1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_TGF_BETA_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_TGFB")
+FeaturePlot_scCustom(seu, features = "H_TGFB1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+
+pdf(file.path(FIG_DIR, paste0("[Final] - H_GLYCOLYSIS1", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_MYC_TARGETS_V2",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_GLYCOLYSIS")
+FeaturePlot_scCustom(seu, features = "H_GLYCOLYSIS1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+dev.off()
+sum(rownames(seu) %in% bac)
+length(bac)
+sum(rownames(seu) %in% bac)/length(bac)
+
+
+
+```
+
+
+##----- Old stuff below -----##
+
+## Load processed data. View all cells
+```{r}
+seu<-readRDS(file.path(CDS_DIR, "2209016_processed_labeled.RDS"))
+DimPlot_scCustom(seu, group.by = "group", colors_use = clus_cols36)
+VlnPlot(seu, features = c("nFeature_RNA", "nCount_RNA", "logUMI", "percent.mt"), ncol = 4, pt.size = 0)
+
+DefaultAssay(seu)<-"ADT"
+FeaturePlot_scCustom(seu, features = "I-A-I-E")
+```
+
+
+
+## Just isolate IEC
+```{r, echo=FALSE}
+DimPlot_scCustom(seu)
+#seu<-readRDS(file.path(CDS_DIR, "241104_processed.RDS"))
+seu<-readRDS(file.path(CDS_DIR, "2209016_processed_labeled.RDS"))
+seu<-seu[,seu$seurat_clusters %in% c(0,1,2,3,4,7)]
+DimPlot_scCustom(seu)
+
+
+DefaultAssay(seu)<-"RNA"
+seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(seu, nfeatures = 2000)
+seu <- ScaleData(seu)
+#seu <- SCTransform(seu, vars.to.regress = "percent.mt", verbose = T)
+
+seu <- RunPCA(seu, features = VariableFeatures(object = seu), npcs = 50)
+ElbowPlot(seu, 50)
+seu <- FindNeighbors(seu, dims = 1:25)
+seu <- FindClusters(seu, resolution = 0.4)
+seu <- RunUMAP(seu, dims = 1:25)
+DimPlot_scCustom(seu, group.by = "group", colors_use = clus_cols36, pt.size = 1) 
+
+FeaturePlot_scCustom(seu, features = "I-A-I-E", pt.size = 0.2, colors_use = viridis_inferno_light_high)
+FeaturePlot_scCustom(seu, features = "Ifngr1", pt.size = 1, colors_use = viridis_inferno_light_high)
+FeaturePlot_scCustom(seu, features = "CD45.2")
+FeaturePlot_scCustom(seu, features = "H-2Kb")
+FeaturePlot_scCustom(seu, features = "Reg3b")
+
+DimPlot_scCustom(seu, pt.size = 1)
+DimPlot_scCustom(seu, group.by = "seurat_clusters", colors_use = clus_cols36, pt.size = 0.5)
+# FeaturePlot_scCustom(seu, features = "Hbegf")
+# FeaturePlot_scCustom(seu, features = "Olfm4")
+# FeaturePlot_scCustom(seu, features = "H2-Q7")
+# FeaturePlot_scCustom(seu, features = "H1f0")
+# FeaturePlot_scCustom(seu, features = "MSYq")
+#FeaturePlot_scCustom(seu, features = "Xist")+
+#FeaturePlot_scCustom(seu, features = "Kdm5d")
+#FeaturePlot_scCustom(seu, features = "Ddx3y")
+#FeaturePlot_scCustom(seu, features = "Usp9y")
+#FeaturePlot_scCustom(seu, features = "Uty")
+#FeaturePlot_scCustom(seu, features = "Eif2s3y")
+#FeaturePlot_scCustom(seu, features = "Il7")
+# DimPlot_scCustom(seu, group.by = "group", pt.size = 1)
+# 
+# 
+# FeaturePlot_scCustom(seu, features = "Id1", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Id2", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Nupr1", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Spi1", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Stat1", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Ifitm1", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Oas", pt.size = 1, colors_use = viridis_inferno_light_high)
+# 
+# FeaturePlot_scCustom(seu, features = "Sry", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Xist", pt.size = 1, colors_use = viridis_inferno_light_high)
+# 
+# FeaturePlot_scCustom(seu, features = "Lypd8", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Lgr5", pt.size = 1, colors_use = viridis_inferno_light_high)
+# FeaturePlot_scCustom(seu, features = "Olfm4", pt.size = 1, colors_use = viridis_inferno_light_high)
+
+```
+
+
+```{r}
+DefaultAssay(seu) <- "ADT"
+rownames(seu@assays$ADT)
+FeaturePlot_scCustom(seu, features = "I-A-I-E")# MHC-class II protein
+FeaturePlot_scCustom(seu, features = "H-2Kb")# MHC class I
+FeaturePlot_scCustom(seu, features = "CD45.2")
+
+VlnPlot(seu, features =  c("I-A-I-E"), group.by = "seurat_clusters", pt.size = 0)
+VlnPlot(seu, features =  c("H2-Ab1"), group.by = "seurat_clusters", pt.size = 0)# gene(rna) level class II expression
+```
+
+
+#### include 6 proteins in the seu metadata using column bind(cbind)
+```{r}
+seu@meta.data<-cbind(seu@meta.data, t(log(seu@assays$ADT@counts+1)))
+```
+
+## Cerebro 
+```{r}
+library(cerebroApp)
+seu$nUMI<-colSums(seu@assays$RNA@counts)
+seu$nGene<-colSums(seu@assays$RNA@counts)
+cer<-cerebroApp::exportFromSeurat(seu, groups = colnames(seu@meta.data), experiment_name = "Exp649", organism = "mouse", file = file.path(RES_DIR, "Exp649_Cerebrov2.crb"))
+
+
+launchCerebro(
+  version = "v1.3",
+  crb_file_to_load = file.path(RES_DIR, "Exp649_Cerebrov2.crb"),
+  mode = "closed"
+)
+
+```
+
+## subsetting IAIE+ and IAIE-neg cells from cluster 2 based on prot expression
+```{r}
+mat<-seu[["ADT"]]@counts["I-A-I-E",, drop = F]
+mat<-seu[["ADT"]]@data["I-A-I-E",, drop = F] ## its filtering on data 
+quantile(mat) ## to check the threshhold 
+dim(mat)
+dim(seu)
+colnames(mat)<-seu %>% colnames()
+# mIfngr_neg<-seu[ ,seu$seurat_clusters%in%c(2)]%>%colnames()
+# mat<-mat[ ,mIfngr_neg, drop = F]
+### seu_IAIEneg subset
+IAIEpos<-mat[,which(colSums(mat) >0.3)] %>% names()
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+intersect(IAIEneg, IAIEpos)  ## should be zero
+
+seu_IAIEpos2<-seu[,colnames(seu) %in% IAIEpos & seu$seurat_clusters%in%c(2)]
+seu_IAIEneg2<-seu[,colnames(seu) %in% IAIEneg & seu$seurat_clusters%in%c(2)]
+
+FeaturePlot_scCustom(seu_IAIEpos2, features = c("I-A-I-E"))
+FeaturePlot_scCustom(seu_IAIEneg2, features = c("I-A-I-E"))
+
+seu$IAIE_clu2<-"None"
+seu$IAIE_clu2[which(colnames(seu) %in% colnames(seu_IAIEpos2))]<-"IAIEpos2"
+seu$IAIE_clu2[which(colnames(seu) %in% colnames(seu_IAIEneg2))]<-"IAIEneg2"
+table(seu$IAIE_clu2)
+
+DimPlot(seu, group.by = "IAIE_clu2")
+DimPlot(seu, group.by = "seurat_clusters")
+## works  from line 174 to 189
+
+### seu_IAIEpos subset
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+seu_IAIEpos<-seu[,!colnames(seu) %in% IAIEneg]
+#seu_IAIEpos<-seu[,colnames(seu) %in% IAIEpos]
+IAIEpos<- colnames(seu_IAIEpos) ## to get the barcodes
+## creating new metadata IAIE_clu2
+seu$IAIE_clu2 <-"NA"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEpos)]<-"IAIEpos"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEneg)]<-"IAIEneg"
+DimPlot(seu, group.by= "IAIE_clu2" )
+DimPlot(seu, group.by= "group" , pt.size = 0.9)
+
+```
+
+## Oxphos and Mito pathways on IAIE_clu2, IAIE_clu4,IAIE_clu0, IAIE_clu1 and IAIE_clu3
+```{r}
+## Oxphos
+library(msigdbr)
+library(ggplot2)
+msig<-msigdbr(species = "Mus musculus", category = "H")
+oxphos<-msig[msig$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",]$gene_symbol
+## BIOCARTA_MITOCHONDRIA_PATHWAY
+msig_mito<- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:BIOCARTA")
+mito<-msig_mito[msig_mito$gs_name == "BIOCARTA_MITOCHONDRIA_PATHWAY",]$gene_symbol
+
+seu<-AddModuleScore(seu, features = list(oxphos), name = "Oxphos")
+seu<-AddModuleScore(seu, features = list(mito), name = "Mito")
+mouse_cols<-sfc(n=9)
+
+
+#install.packages("ggpubr")
+if(!require(devtools)) install.packages("devtools")
+devtools::install_github("kassambara/ggpubr")
+library(ggpubr)
+#######################IAIE_clu2##################
+my_comparisons <- list( c("IAIEpos2", "IAIEneg2"))
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "Oxphos1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_Clus2")
+#,label = "p.signif"
+#table(is.finite(seu$IAIE_clu2)%in% c("IAIEpos", "IAIEneg"))
+
+my_comparisons <- list( c("IAIEpos2", "IAIEneg2"))
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "Mito1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Mito_Clus2")
+
+#######################IAIE_clu4##################
+my_comparisons <- list( c("IAIEpos4", "IAIEneg4"))
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "Oxphos1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_Clus4")
+
+my_comparisons <- list( c("IAIEpos4", "IAIEneg4"))
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "Mito1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Mito_Clus4")
+
+#######################IAIE_clu0##################
+my_comparisons <- list( c("IAIEpos0", "IAIEneg0"))
+VlnPlot(seu[, seu$IAIE_clu0 %in% c("IAIEpos0", "IAIEneg0")], features = "Oxphos1", group.by = "IAIE_clu0", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_Clus0")
+
+my_comparisons <- list( c("IAIEpos0", "IAIEneg0"))
+VlnPlot(seu[, seu$IAIE_clu0 %in% c("IAIEpos0", "IAIEneg0")], features = "Mito1", group.by = "IAIE_clu0", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Mito_Clus0")
+#######################IAIE_clu1##################
+my_comparisons <- list( c("IAIEpos1", "IAIEneg1"))
+VlnPlot(seu[, seu$IAIE_clu1 %in% c("IAIEpos1", "IAIEneg1")], features = "Oxphos1", group.by = "IAIE_clu1", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_Clus1")
+
+my_comparisons <- list( c("IAIEpos1", "IAIEneg1"))
+VlnPlot(seu[, seu$IAIE_clu1 %in% c("IAIEpos1", "IAIEneg1")], features = "Mito1", group.by = "IAIE_clu1", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Mito_Clus1")
+#######################IAIE_clu3##################
+my_comparisons <- list( c("IAIEpos3", "IAIEneg3"))
+VlnPlot(seu[, seu$IAIE_clu3 %in% c("IAIEpos3", "IAIEneg3")], features = "Oxphos1", group.by = "IAIE_clu3", cols = mouse_cols, pt.size =0, y.max = 0.9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_Clus3")
+
+my_comparisons <- list( c("IAIEpos3", "IAIEneg3"))
+VlnPlot(seu[, seu$IAIE_clu3 %in% c("IAIEpos3", "IAIEneg3")], features = "Mito1", group.by = "IAIE_clu3", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Mito_Clus3")
+#######################seurat_clusters##################
+my_comparisons <- list( c("0", "4", "2","3","1","5"))
+VlnPlot(seu, features = "Oxphos1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_clusters")
+#,label = "p.signif"
+
+
+VlnPlot(seu, features = "Mito1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Mito_clusters")
+
+table(seu$seurat_clusters)
+
+```
+
+## hallmark Ifng, gobp_ifng & reactome_ifng
+```{r}
+## Hallmark Interferon gamma
+library(msigdbr)
+library(ggplot2)
+Infg_msig<-msigdbr(species = "Mus musculus", category = "H")
+HInfg<-Infg_msig[Infg_msig$gs_name == "HALLMARK_INTERFERON_GAMMA_RESPONSE",]$gene_symbol
+
+## GOBP_INTERFERON_GAMMA_MEDIATED_SIGNALING_PATHWAY
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+gobp_infg<-m_df[m_df$gs_name == "GOBP_INTERFERON_GAMMA_MEDIATED_SIGNALING_PATHWAY",]$gene_symbol
+
+## reactome_INTERFERON_GAMMA_MEDIATED_SIGNALING_PATHWAY)
+m_df<- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME")
+reactome_infg<-m_df[m_df$gs_name == "REACTOME_INTERFERON_GAMMA_SIGNALING",]$gene_symbol
+
+
+seu<-AddModuleScore(seu, features = list(HInfg), name = "HInfg")
+seu<-AddModuleScore(seu, features = list(gobp_infg), name = "gobp_infg")
+seu<-AddModuleScore(seu, features = list(reactome_infg), name = "reactome_infg")
+mouse_cols<-sfc(n=9)
+cols<- c("#33A02C","blue")
+my_comparisons <- list( c("0", "5", "2","3","1","4"))
+VlnPlot(seu, features = "HInfg1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="hallmark Ifng_clusters")
+#,label = "p.signif"
+
+VlnPlot(seu, features = "gobp_infg1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Gobp Ifng_clusters")
+#,label = "p.signif"
+
+VlnPlot(seu, features = "reactome_infg1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Reactome Ifng_clusters")
+#,label = "p.signif"
+############################################################## clus 2v4###############
+table(seu$seurat_clusters)
+tseu<-seu[,seu$seurat_clusters %in% c( "2","4")]
+Idents(tseu)<-"seurat_clusters"
+DefaultAssay(tseu)<-"RNA"
+
+my_comparisons <- list( c("4", "2"))
+VlnPlot(tseu, features = "HInfg1", group.by = "seurat_clusters", cols = cols, pt.size =0, y.max = 0.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="hallmark Ifng_clusters")
+#,label = "p.signif"
+
+VlnPlot(tseu, features = "gobp_infg1", group.by = "group", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Gobp Ifng_clusters")
+#,label = "p.signif"
+
+VlnPlot(tseu, features = "reactome_infg1", group.by = "group", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Reactome Ifng_clusters")
+#,label = "p.signif"
+
+
+```
+##Apoptosis, cell proliferation, Hglyco, reactome glyco
+Mouse Gene Set: Hallmark_apoptosis
+Mouse Gene Set: GO_stem cell proliferation
+Mouse Gene Set: Hallmark_Glycolysis
+Mouse Gene Set: REACTOME_Glycolysis
+Mouse Gene Set: GOBP_AEROBIC_RESPIRATION
+```{r}
+## Hallmark_apoptosis
+library(msigdbr)
+library(ggplot2)
+apop_msig<-msigdbr(species = "Mus musculus", category = "H")
+apop<-apop_msig[apop_msig$gs_name == "HALLMARK_APOPTOSIS",]$gene_symbol
+
+## GO_stem cell proliferation
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+go_stem_prolif<-m_df[m_df$gs_name == "GOBP_STEM_CELL_PROLIFERATION",]$gene_symbol
+
+## Hallmark_glycolysis
+m_df<- msigdbr(species = "Mus musculus", category = "H")
+glyco<-m_df[m_df$gs_name == "HALLMARK_GLYCOLYSIS",]$gene_symbol
+
+## reactome_glycolysis
+m_df<- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME")
+reactome_glyco<-m_df[m_df$gs_name == "REACTOME_GLYCOLYSIS",]$gene_symbol
+
+#GOBP_AEROBIC_RESPIRATION
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+go_resp<-m_df[m_df$gs_name == "GOBP_AEROBIC_RESPIRATION",]$gene_symbol
+
+
+seu<-AddModuleScore(seu, features = list(apop), name = "Apop")
+seu<-AddModuleScore(seu, features = list(go_stem_prolif), name = "go_stem_prolif")
+seu<-AddModuleScore(seu, features = list(glyco), name = "glyco")
+seu<-AddModuleScore(seu, features = list(reactome_glyco), name = "reactome_glyco")
+seu<-AddModuleScore(seu, features = list(go_resp), name = "go_resp")
+
+#######################IAIE_clu2##################
+my_comparisons <- list( c("IAIEpos2", "IAIEneg2"))
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "Apop1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 1)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Apop_Clus2")
+#,label = "p.signif"
+
+my_comparisons <- list( c("IAIEpos2", "IAIEneg2"))
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "go_stem_prolif1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="stem_prolif_Clus2")
+
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "glyco1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="glyco_Clus2")
+
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "reactome_glyco1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="reactome_glyco_Clus2")
+#######################IAIE_clu3##################
+my_comparisons <- list( c("IAIEpos3", "IAIEneg3"))
+VlnPlot(seu[, seu$IAIE_clu3 %in% c("IAIEpos3", "IAIEneg3")], features = "Apop1", group.by = "IAIE_clu3", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Apop_Clus3")
+
+my_comparisons <- list( c("IAIEpos3", "IAIEneg3"))
+VlnPlot(seu[, seu$IAIE_clu3 %in% c("IAIEpos3", "IAIEneg3")], features = "go_stem_prolif1", group.by = "IAIE_clu3", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="stem_prolif_Clus3")
+
+VlnPlot(seu[, seu$IAIE_clu3 %in% c("IAIEpos3", "IAIEneg3")], features = "glyco1", group.by = "IAIE_clu3", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="glyco_Clus3")
+
+my_comparisons <- list( c("IAIEpos3", "IAIEneg3"))
+VlnPlot(seu[, seu$IAIE_clu3 %in% c("IAIEpos3", "IAIEneg3")], features = "reactome_glyco1", group.by = "IAIE_clu3", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="reactome_glyco_Clus3")
+
+#######################IAIE_clu4##################
+my_comparisons <- list( c("IAIEpos4", "IAIEneg4"))
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "Apop1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Apop_Clus4")
+
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "reactome_glyco1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="reactome_glyco4")
+
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "glyco1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="glyco_Clus4")
+
+my_comparisons <- list( c("IAIEpos4", "IAIEneg4"))
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "go_stem_prolif1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="stem_prolif_Clus4")
+
+
+
+########################## All clusters################################
+VlnPlot(seu, features = "Apop1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Apop_clusters")
+
+VlnPlot(seu, features = "go_stem_prolif1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="stem_prolif_clusters")
+
+VlnPlot(seu, features = "glyco1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="glyco_clusters")
+
+VlnPlot(seu, features = "reactome_glyco1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 0.8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="reactome_glyco_clusters")
+
+my_comparisons <- list( c("0", "5", "2", "3", "4","1"))
+VlnPlot(seu, features = "go_resp1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 1)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Aerobic_resp_clusters")
+
+
+VlnPlot(seu, features = "MHC_C2_prot1", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 2.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="MHC_C2_prot_clusters")
+
+VlnPlot(seu, features = "I-A-I-E", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="ABseq_IAIE_clusters")
+```
+
+## cols
+```{r}
+#E8B153- yellow for cluster 2
+#40566F- dark blue for cluster 4
+
+cond_cols<- c("#E8B153", "#40566F")
+
+```
+### more gsea
+GOBP_RESPONSE_TO_TYPE_I_INTERFERON
+HALLMARK_INTERFERON_ALPHA_RESPONSE
+HALLMARK_TNFA_SIGNALING_VIA_NFKB
+GOBP_RESPONSE_TO_INTERLEUKIN_1
+GOBP_RESPONSE_TO_INTERLEUKIN_6
+GOCC_MHC_CLASS_II_PROTEIN_COMPLEX
+
+Cluster 2 vs 4 (with p value)
+In cluster 2, IAIE pos ve IAIE neg (with p value)
+In cluster 4, IAIE pos ve IAIE neg (with p value)
+```{r}
+
+library(msigdbr)
+library(ggplot2)
+
+## HALLMARK_INTERFERON_ALPHA_RESPONSE
+m_df<-msigdbr(species = "Mus musculus", category = "H")
+HInfA<-m_df[m_df$gs_name == "HALLMARK_INTERFERON_ALPHA_RESPONSE",]$gene_symbol
+
+## GOBP_RESPONSE_TO_TYPE_I_INTERFERON
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+go_Type1_Inf<-m_df[m_df$gs_name == "GOBP_RESPONSE_TO_TYPE_I_INTERFERON",]$gene_symbol
+
+## HALLMARK_TNFA_SIGNALING_VIA_NFKB
+m_df<- msigdbr(species = "Mus musculus", category = "H")
+HTnfA<-m_df[m_df$gs_name == "HALLMARK_TNFA_SIGNALING_VIA_NFKB",]$gene_symbol
+
+## GOBP_RESPONSE_TO_INTERLEUKIN_1
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+go_IL1<-m_df[m_df$gs_name == "GOBP_RESPONSE_TO_INTERLEUKIN_1",]$gene_symbol
+
+#GOBP_RESPONSE_TO_INTERLEUKIN_6
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+go_IL6<-m_df[m_df$gs_name == "GOBP_RESPONSE_TO_INTERLEUKIN_6",]$gene_symbol
+
+#GOCC_MHC_CLASS_II_PROTEIN_COMPLEX
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:CC")
+MHC_C2_prot<-m_df[m_df$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX",]$gene_symbol
+
+
+
+seu<-AddModuleScore(seu, features = list(HInfA), name = "HInfA")
+seu<-AddModuleScore(seu, features = list(go_Type1_Inf), name = "go_Type1_Inf")
+seu<-AddModuleScore(seu, features = list(HTnfA), name = "HTnfA")
+seu<-AddModuleScore(seu, features = list(go_IL1), name = "go_IL1")
+seu<-AddModuleScore(seu, features = list(go_IL6), name = "go_IL6")
+seu<-AddModuleScore(seu, features = list(MHC_C2_prot), name = "MHC_C2_prot")
+
+#######################IAIE_clu2##################
+my_comparisons <- list( c("IAIEpos2", "IAIEneg2"))
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "HInfA1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Hallmark_InfA_Clus2")
+#,label = "p.signif"
+
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "go_Type1_Inf1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Type1_Interferon_Clus2")
+
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "HTnfA1", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Hallmark_TnfA_Clus2")
+
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "go_IL11", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="IL1_Clus2")
+
+VlnPlot(seu[, seu$IAIE_clu2 %in% c("IAIEpos2", "IAIEneg2")], features = "go_IL61", group.by = "IAIE_clu2", cols = mouse_cols, pt.size =0, y.max = 0.6)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="IL6_Clus2")
+
+#######################IAIE_clu4##################
+my_comparisons <- list( c("IAIEpos4", "IAIEneg4"))
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "HInfA1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Hallmark_InfA_Clus4")
+
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "go_Type1_Inf1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Type1_Interferon_Clus4")
+
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "HTnfA1", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.4)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Hallmark_TnfA_Clus4")
+
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "go_IL11", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="IL1_Clus4")
+
+VlnPlot(seu[, seu$IAIE_clu4 %in% c("IAIEpos4", "IAIEneg4")], features = "go_IL61", group.by = "IAIE_clu4", cols = mouse_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="IL6_Clus4")
+
+####### Clus 2v4#######
+
+table(seu$seurat_clusters)
+tseu<-seu[,seu$seurat_clusters %in% c( "2","4")]
+Idents(tseu)<-"seurat_clusters"
+DefaultAssay(tseu)<-"RNA"
+
+my_comparisons <- list( c("4", "2"))
+VlnPlot(tseu, features = "HInfA1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="hallmark IfnA_clusters")    ###this
+
+VlnPlot(tseu, features = "go_Type1_Inf1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Type1_Ifn_clusters")
+
+VlnPlot(tseu, features = "HTnfA1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="HTnfA_clusters")       ###this
+
+VlnPlot(tseu, features = "go_IL11", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="IL1_clusters")          ###this
+
+VlnPlot(tseu, features = "go_IL61", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.5)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="IL6_clusters")          ###this
+
+VlnPlot(tseu, features = "go_resp1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Aerobic_respiration_clusters") ###this
+
+VlnPlot(tseu, features = "Oxphos1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Oxphos_clusters")         ###this
+
+VlnPlot(tseu, features = "glyco1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Hglycolysis_clusters") ###this
+
+VlnPlot(tseu, features = "reactome_glyco1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 0.3)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="reactome_glyco_clusters")
+
+VlnPlot(tseu, features = "MHC_C2_prot1", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 2)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="MHC_C2_prot_clusters")
+
+VlnPlot(tseu, features = "I-A-I-E", group.by = "seurat_clusters", cols = cond_cols, pt.size =0, y.max = 9)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Abseq_IAIE_clusters")   ###this
+
+f3seu<-seu[,seu$seurat_clusters %in% c( "3","2")]
+Idents(f3seu)<-"seurat_clusters"
+DefaultAssay(f3seu)<-"RNA"
+
+my_comparisons <- list( c("2", "3"))
+my_comparisons <- list( c("2", "1"))
+my_comparisons <- list( c("0", "2"))
+
+VlnPlot(f3seu, features = "I-A-I-E", group.by = "seurat_clusters", cols = mouse_cols, pt.size =0, y.max = 8)+geom_boxplot(width = 0.25, notch = FALSE, notchwidth = .4, outlier.shape = NA, coef=0, fill = "white")+ggpubr::stat_compare_means(comparisons = my_comparisons)+ggtitle(label="Abseq_IAIE_clusters")
+
+
+
+
+```
+
+
+```{r}
+###############################################################
+
+FeaturePlot_scCustom(seu_IAIEpos, features = c("I-A-I-E"))
+
+
+##subset function
+DefaultAssay(seu)<- "ADT"
+VlnPlot_scCustom(seu, features = c("I-A-I-E"), pt.size = 0)
+IAIEpos<-subset(seu,seurat_clusters == "2" & "I-A-I-E">1)  %>% colnames()
+DimPlot(IAIEpos)
+# set threshhold
+
+IAIEneg<-subset(seu,seurat_clusters == "2" & "I-A-I-E"<1)  %>% colnames()
+FeaturePlot_scCustom(seu,features = c("I-A-I-E"))
+
+
+
+
+```
+
+### volcano plot on seu_IAIEpos & seu_IAIEneg
+```{r}
+BiocManager::install('EnhancedVolcano')
+devtools::install_github('kevinblighe/EnhancedVolcano')
+library(EnhancedVolcano)
+library(ggrepel)
+Idents(seu)<-"IAIE_clu2"
+
+de<- FindMarkers(
+  seu,
+  ident.1 = "IAIEpos2" ,
+  ident.2= "IAIEneg2" )
+
+#de$gene<-rownames(de)
+EnhancedVolcano(de,
+    lab = rownames(de),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    pCutoff = 10e-2,
+    FCcutoff = 0.1,
+    pointSize = 3.0,
+    labSize = 6.0,
+   )+ggtitle(label = "Clus2_de_genes")
+#write.csv(de, file.path(RES_DIR, "DE_markers_clus2_IAIEpos_neg_markers.csv"))
+
+## find markers not all then create df
+##use df 1st in the label has positive value and the second in the label is neg value
+#enhanced volcano
+## Look for DE genes in IAIE+ and neg subset or volcano plot
+#10e-2
+```
+
+
+
+```{r}
+#install.packages('reticulate')
+#reticulate::py_config()
+#reticulate::py_available("scanpy")
+install.packages('IRkernel')
+install.packages(c("devtools", "rlist","heatmaply", "hdf5r", "tidyverse", 
+                   "openxlsx", "prettydoc", "kableExtra", "piano", "pals", 
+                   "ClusterR", "mixtools","Cairo", "refGenome", "ggplot2"))
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+packages<-c('BiocGenerics','DelayedArray','DelayedMatrixStats','limma',
+            'S4Vectors','SingleCellExperiment','SummarizedExperiment',
+            'batchelor','apeglm','EnhancedVolcano','ashr','fgsea',
+            'Seurat','TxDb.Hsapiens.UCSC.hg38.knownGene','multtest',
+            'edgeR','simpleaffy','sva','made4','RBGL','reshape','WGCNA','GEOquery',
+            'oligo','GSEABase','Rsubread','refGenome','statmod','genbankr','Gviz',
+            'ggbio','vcfR','AnnotationHub','EnrichedHeatmap','GenomicRanges','motifmatchr',
+            'chromVAR','Rsamtools','Biostrings','ComplexHeatmap','ShortRead','BSgenome',
+            'EnsDb.Hsapiens.v86','BSgenome.Hsapiens.UCSC.hg38','JASPAR2018',
+            'patchwork','R453Plus1Toolbox','rgr','GenomicFeatures','BiocStyle','HPAanalyze')
+```
+
+## subsetting IAIE+ and IAIE-neg cells from cluster 4 based on prot expression
+```{r}
+#mat<-seu[["ADT"]]@counts["I-A-I-E",, drop = F]
+mat<-seu[["ADT"]]@data["I-A-I-E",, drop = F] ## its filtering on data 
+quantile(mat) ## to check the threshhold 
+dim(mat)
+dim(seu)
+colnames(mat)<-seu %>% colnames()
+# mIfngr_neg<-seu[ ,seu$seurat_clusters%in%c(2)]%>%colnames()
+# mat<-mat[ ,mIfngr_neg, drop = F]
+### seu_IAIEneg subset
+IAIEpos<-mat[,which(colSums(mat) >0.3)] %>% names()
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+intersect(IAIEneg, IAIEpos)
+
+seu_IAIEpos4<-seu[,colnames(seu) %in% IAIEpos & seu$seurat_clusters%in%c(4)]
+seu_IAIEneg4<-seu[,colnames(seu) %in% IAIEneg & seu$seurat_clusters%in%c(4)]
+
+FeaturePlot_scCustom(seu_IAIEpos4, features = c("I-A-I-E"))
+FeaturePlot_scCustom(seu_IAIEneg4, features = c("I-A-I-E"))
+
+seu$IAIE_clu4<-"None"
+seu$IAIE_clu4[which(colnames(seu) %in% colnames(seu_IAIEpos4))]<-"IAIEpos4"
+seu$IAIE_clu4[which(colnames(seu) %in% colnames(seu_IAIEneg4))]<-"IAIEneg4"
+table(seu$IAIE_clu4)
+
+DimPlot(seu, group.by = "IAIE_clu4")
+## works  from line 174 to 189
+
+### seu_IAIEpos subset
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+seu_IAIEpos<-seu[,!colnames(seu) %in% IAIEneg]
+#seu_IAIEpos<-seu[,colnames(seu) %in% IAIEpos]
+IAIEpos<- colnames(seu_IAIEpos) ## to get the barcodes
+## creating new metadata IAIE_clu2
+seu$IAIE_clu2 <-"NA"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEpos)]<-"IAIEpos"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEneg)]<-"IAIEneg"
+DimPlot(seu, group.by= "IAIE_clu2" )
+
+###############################################################
+
+FeaturePlot_scCustom(seu_IAIEpos, features = c("I-A-I-E"))
+
+
+##subset function
+DefaultAssay(seu)<- "ADT"
+VlnPlot_scCustom(seu, features = c("I-A-I-E"), pt.size = 0)
+IAIEpos<-subset(seu,seurat_clusters == "2" & "I-A-I-E">1)  %>% colnames()
+DimPlot(IAIEpos)
+# set threshhold
+
+IAIEneg<-subset(seu,seurat_clusters == "2" & "I-A-I-E"<1)  %>% colnames()
+FeaturePlot_scCustom(seu,features = c("I-A-I-E"))
+
+
+
+```
+
+### volcano plot on seu_IAIEpos4 & seu_IAIEneg4
+```{r}
+BiocManager::install('EnhancedVolcano')
+devtools::install_github('kevinblighe/EnhancedVolcano')
+library(EnhancedVolcano)
+library(ggrepel)
+Idents(seu)<-"IAIE_clu4"
+
+de4<- FindMarkers(
+  seu,
+  ident.1 = "IAIEpos4" ,
+  ident.2= "IAIEneg4" )
+
+#de$gene<-rownames(de)
+EnhancedVolcano(de4,
+    lab = rownames(de4),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    pCutoff = 10e-2,
+    FCcutoff = 0.1,
+    pointSize = 3.0,
+    labSize = 6.0,
+   )+ggtitle(label = "Clus4_de_genes")
+#write.csv(de4, file.path(RES_DIR, "DE_markers_clus4_IAIEpos_neg_markers.csv"))
+
+## find markers not all then create df
+##use df 1st in the label has positive value and the second in the label is neg value
+#enhanced volcano
+## Look for DE genes in IAIE+ and neg subset or volcano plot
+#10e-2
+```
+
+
+## subsetting IAIE+ and IAIE-neg cells from cluster 0 based on prot expression
+```{r}
+#mat<-seu[["ADT"]]@counts["I-A-I-E",, drop = F]
+mat<-seu[["ADT"]]@data["I-A-I-E",, drop = F] ## its filtering on data 
+quantile(mat) ## to check the threshhold 
+dim(mat)
+dim(seu)
+colnames(mat)<-seu %>% colnames()
+# mIfngr_neg<-seu[ ,seu$seurat_clusters%in%c(2)]%>%colnames()
+# mat<-mat[ ,mIfngr_neg, drop = F]
+### seu_IAIEneg subset
+IAIEpos<-mat[,which(colSums(mat) >0.3)] %>% names()
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+intersect(IAIEneg, IAIEpos)
+
+seu_IAIEpos0<-seu[,colnames(seu) %in% IAIEpos & seu$seurat_clusters%in%c(0)]
+seu_IAIEneg0<-seu[,colnames(seu) %in% IAIEneg & seu$seurat_clusters%in%c(0)]
+
+FeaturePlot_scCustom(seu_IAIEpos0, features = c("I-A-I-E"))
+FeaturePlot_scCustom(seu_IAIEneg0, features = c("I-A-I-E"))
+
+seu$IAIE_clu0<-"None"
+seu$IAIE_clu0[which(colnames(seu) %in% colnames(seu_IAIEpos0))]<-"IAIEpos0"
+seu$IAIE_clu0[which(colnames(seu) %in% colnames(seu_IAIEneg0))]<-"IAIEneg0"
+table(seu$IAIE_clu0)
+
+DimPlot(seu, group.by = "IAIE_clu0")
+## works  from line 174 to 189
+
+### seu_IAIEpos subset
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+seu_IAIEpos<-seu[,!colnames(seu) %in% IAIEneg]
+#seu_IAIEpos<-seu[,colnames(seu) %in% IAIEpos]
+IAIEpos<- colnames(seu_IAIEpos) ## to get the barcodes
+## creating new metadata IAIE_clu2
+seu$IAIE_clu2 <-"NA"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEpos)]<-"IAIEpos"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEneg)]<-"IAIEneg"
+DimPlot(seu, group.by= "IAIE_clu2" )
+
+###############################################################
+
+FeaturePlot_scCustom(seu_IAIEpos, features = c("I-A-I-E"))
+
+
+##subset function
+DefaultAssay(seu)<- "ADT"
+VlnPlot_scCustom(seu, features = c("I-A-I-E"), pt.size = 0)
+IAIEpos<-subset(seu,seurat_clusters == "2" & "I-A-I-E">1)  %>% colnames()
+DimPlot(IAIEpos)
+# set threshhold
+
+IAIEneg<-subset(seu,seurat_clusters == "2" & "I-A-I-E"<1)  %>% colnames()
+FeaturePlot_scCustom(seu,features = c("I-A-I-E"))
+
+
+
+```
+
+### volcano plot on seu_IAIEpos0 & seu_IAIEneg0
+```{r}
+BiocManager::install('EnhancedVolcano')
+devtools::install_github('kevinblighe/EnhancedVolcano')
+library(EnhancedVolcano)
+library(ggrepel)
+Idents(seu)<-"IAIE_clu0"
+
+de0<- FindMarkers(
+  seu,
+  ident.1 = "IAIEpos0" ,
+  ident.2= "IAIEneg0" )
+
+#de$gene<-rownames(de)
+EnhancedVolcano(de0,
+    lab = rownames(de0),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    pCutoff = 10e-2,
+    FCcutoff = 0.1,
+    pointSize = 3.0,
+    labSize = 6.0,
+   )+ggtitle(label = "Clus0_de_genes")
+#write.csv(de0, file.path(RES_DIR, "DE_markers_clus0_IAIEpos_neg_markers.csv"))
+
+## find markers not all then create df
+##use df 1st in the label has positive value and the second in the label is neg value
+#enhanced volcano
+## Look for DE genes in IAIE+ and neg subset or volcano plot
+#10e-2
+```
+
+
+
+## subsetting IAIE+ and IAIE-neg cells from cluster 1 based on prot expression
+```{r}
+#mat<-seu[["ADT"]]@counts["I-A-I-E",, drop = F]
+mat<-seu[["ADT"]]@data["I-A-I-E",, drop = F] ## its filtering on data 
+quantile(mat) ## to check the threshhold 
+dim(mat)
+dim(seu)
+colnames(mat)<-seu %>% colnames()
+# mIfngr_neg<-seu[ ,seu$seurat_clusters%in%c(2)]%>%colnames()
+# mat<-mat[ ,mIfngr_neg, drop = F]
+### seu_IAIEneg subset
+IAIEpos<-mat[,which(colSums(mat) >0.3)] %>% names()
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+intersect(IAIEneg, IAIEpos)
+
+seu_IAIEpos1<-seu[,colnames(seu) %in% IAIEpos & seu$seurat_clusters%in%c(1)]
+seu_IAIEneg1<-seu[,colnames(seu) %in% IAIEneg & seu$seurat_clusters%in%c(1)]
+
+FeaturePlot_scCustom(seu_IAIEpos1, features = c("I-A-I-E"))
+FeaturePlot_scCustom(seu_IAIEneg1, features = c("I-A-I-E"))
+
+seu$IAIE_clu1<-"None"
+seu$IAIE_clu1[which(colnames(seu) %in% colnames(seu_IAIEpos1))]<-"IAIEpos1"
+seu$IAIE_clu1[which(colnames(seu) %in% colnames(seu_IAIEneg1))]<-"IAIEneg1"
+table(seu$IAIE_clu1)
+
+DimPlot(seu, group.by = "IAIE_clu1")
+## works  from line 174 to 189
+
+### seu_IAIEpos subset
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+seu_IAIEpos<-seu[,!colnames(seu) %in% IAIEneg]
+#seu_IAIEpos<-seu[,colnames(seu) %in% IAIEpos]
+IAIEpos<- colnames(seu_IAIEpos) ## to get the barcodes
+## creating new metadata IAIE_clu2
+seu$IAIE_clu2 <-"NA"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEpos)]<-"IAIEpos"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEneg)]<-"IAIEneg"
+DimPlot(seu, group.by= "IAIE_clu2" )
+
+###############################################################
+
+FeaturePlot_scCustom(seu_IAIEpos, features = c("I-A-I-E"))
+
+
+##subset function
+DefaultAssay(seu)<- "ADT"
+VlnPlot_scCustom(seu, features = c("I-A-I-E"), pt.size = 0)
+IAIEpos<-subset(seu,seurat_clusters == "2" & "I-A-I-E">1)  %>% colnames()
+DimPlot(IAIEpos)
+# set threshhold
+
+IAIEneg<-subset(seu,seurat_clusters == "2" & "I-A-I-E"<1)  %>% colnames()
+FeaturePlot_scCustom(seu,features = c("I-A-I-E"))
+
+
+
+```
+
+### volcano plot on seu_IAIEpos1 & seu_IAIEneg1
+```{r}
+BiocManager::install('EnhancedVolcano')
+devtools::install_github('kevinblighe/EnhancedVolcano')
+library(EnhancedVolcano)
+library(ggrepel)
+Idents(seu)<-"IAIE_clu1"
+
+de1<- FindMarkers(
+  seu,
+  ident.1 = "IAIEpos1" ,
+  ident.2= "IAIEneg1" )
+
+#de$gene<-rownames(de)
+EnhancedVolcano(de1,
+    lab = rownames(de1),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    pCutoff = 10e-2,
+    FCcutoff = 0.1,
+    pointSize = 3.0,
+    labSize = 6.0,
+   )+ggtitle(label = "Clus1_de_genes")
+write.csv(de1, file.path(RES_DIR, "DE_markers_clus1_IAIEpos_neg_markers.csv"))
+
+## find markers not all then create df
+##use df 1st in the label has positive value and the second in the label is neg value
+#enhanced volcano
+## Look for DE genes in IAIE+ and neg subset or volcano plot
+#10e-2
+```
+
+
+## subsetting IAIE+ and IAIE-neg cells from cluster 3 based on prot expression
+```{r}
+#mat<-seu[["ADT"]]@counts["I-A-I-E",, drop = F]
+mat<-seu[["ADT"]]@data["I-A-I-E",, drop = F] ## its filtering on data 
+quantile(mat) ## to check the threshhold 
+dim(mat)
+dim(seu)
+colnames(mat)<-seu %>% colnames()
+# mIfngr_neg<-seu[ ,seu$seurat_clusters%in%c(2)]%>%colnames()
+# mat<-mat[ ,mIfngr_neg, drop = F]
+### seu_IAIEneg subset
+IAIEpos<-mat[,which(colSums(mat) >0.3)] %>% names()
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+intersect(IAIEneg, IAIEpos)
+
+seu_IAIEpos3<-seu[,colnames(seu) %in% IAIEpos & seu$seurat_clusters%in%c(3)]
+seu_IAIEneg3<-seu[,colnames(seu) %in% IAIEneg & seu$seurat_clusters%in%c(3)]
+
+FeaturePlot_scCustom(seu_IAIEpos3, features = c("I-A-I-E"))
+FeaturePlot_scCustom(seu_IAIEneg3, features = c("I-A-I-E"))
+
+seu$IAIE_clu3<-"None"
+seu$IAIE_clu3[which(colnames(seu) %in% colnames(seu_IAIEpos3))]<-"IAIEpos3"
+seu$IAIE_clu3[which(colnames(seu) %in% colnames(seu_IAIEneg3))]<-"IAIEneg3"
+table(seu$IAIE_clu3)
+
+DimPlot(seu, group.by = "IAIE_clu3")
+## works  from line 174 to 189
+
+### seu_IAIEpos subset
+IAIEneg<-mat[,which(colSums(mat) <0.3)] %>% names()
+seu_IAIEpos<-seu[,!colnames(seu) %in% IAIEneg]
+#seu_IAIEpos<-seu[,colnames(seu) %in% IAIEpos]
+IAIEpos<- colnames(seu_IAIEpos) ## to get the barcodes
+## creating new metadata IAIE_clu2
+seu$IAIE_clu2 <-"NA"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEpos)]<-"IAIEpos"
+seu$IAIE_clu2[which(colnames(seu) %in% IAIEneg)]<-"IAIEneg"
+DimPlot(seu, group.by= "IAIE_clu2" )
+
+###############################################################
+
+FeaturePlot_scCustom(seu_IAIEpos, features = c("I-A-I-E"))
+
+
+##subset function
+DefaultAssay(seu)<- "ADT"
+VlnPlot_scCustom(seu, features = c("I-A-I-E"), pt.size = 0)
+IAIEpos<-subset(seu,seurat_clusters == "2" & "I-A-I-E">1)  %>% colnames()
+DimPlot(IAIEpos)
+# set threshhold
+
+IAIEneg<-subset(seu,seurat_clusters == "2" & "I-A-I-E"<1)  %>% colnames()
+FeaturePlot_scCustom(seu,features = c("I-A-I-E"))
+
+
+
+```
+
+### volcano plot on seu_IAIEpos3 & seu_IAIEneg3
+```{r}
+BiocManager::install('EnhancedVolcano')
+devtools::install_github('kevinblighe/EnhancedVolcano')
+library(EnhancedVolcano)
+library(ggrepel)
+Idents(seu)<-"IAIE_clu3"
+
+de3<- FindMarkers(
+  seu,
+  ident.1 = "IAIEpos3" ,
+  ident.2= "IAIEneg3" )
+
+#de$gene<-rownames(de)
+EnhancedVolcano(de3,
+    lab = rownames(de3),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    pCutoff = 10e-2,
+    FCcutoff = 0.1,
+    pointSize = 3.0,
+    labSize = 6.0,
+   )+ggtitle(label = "Clus3_de_genes")
+#write.csv(de3, file.path(RES_DIR, "DE_markers_clus3_IAIEpos_neg_markers.csv"))
+
+## find markers not all then create df
+##use df 1st in the label has positive value and the second in the label is neg value
+#enhanced volcano
+## Look for DE genes in IAIE+ and neg subset or volcano plot
+#10e-2
+```
+
+
+
+
+## Excluding the contaminated male cells in female cluster
+```{r}
+mat<-seu[["RNA"]]@counts["Ddx3y",, drop = F] 
+dim(mat)
+dim(seu)
+colnames(mat)<-seu %>% colnames() 
+non_male_cells<- seu[ ,seu$seurat_clusters%in%c(0,1,3)]%>%colnames()
+mat<- mat[ ,non_male_cells, drop = F]
+
+
+mat[,which(colSums(mat) >0)] %>% names()
+
+
+```
+
+## convert gene rowname from lowercase to uppercase
+```{r}
+low_genes<-rowData(cds)$gene_short_name
+rowData(cds)$gene_short_name<- toupper(low_genes)
+rowData(cds)$id<- toupper(low_genes)
+rownames(counts(cds))<- toupper(rownames(counts(cds)))
+#rownames(cds@assays@data@listData[["counts"]])
+#cds@assays@data$counts@Dimnames
+counts(cds)<-toupper(counts(cds))
+cds@assays@data$counts@Dimnames[[1]]<- toupper(cds@assays@data$counts@Dimnames[[1]])
+```
+
+
+## viewmaster/cell annotation
+```{r}
+cds<-seurat_to_monocle3(seu)
+## temp object to make it human compatible
+franken(
+  cds,
+  rowdata_col = "gene_short_name",
+  from_species = "mm",
+  to_species = "hs",
+  trim = T
+)
+# fData(cds) ## to check the rowdata column in monocle object
+# BiocManager::install('grimbough/biomaRt')
+ library("biomaRt")
+# sessionInfo()
+# 
+?useEnsembl
+# if(interactive()){
+# 
+# mart <- useEnsembl("ensembl")
+# ## using the US West mirror
+# us_mart <- useEnsembl(biomart = "ensembl", mirror = "uswest")
+# }
+
+mpal<-readRDS(file ="/Volumes/fh/fast/furlan_s/grp/data/ddata/BM_data/healthy_bone_marrow_greenleaf.rds")
+plot_cells(mpal, color_cells_by = "BioClassification", label_cell_groups = F)+scale_color_manual(values = sfc(n = 26))
+vg<-common_variant_genes(mpal, cds, top_n = 5000)
+
+view<-viewmaster(ref_cds  = mpal, query_cds = cds, ref_celldata_col = "BioClassification", selected_genes = vg, verbose=T, FUNC = "softmax_regression", tf_idf = F)
+
+plot_cells(view, color_cells_by = "smr_celltype", label_cell_groups = F)+scale_color_manual(values = sfc(26,scramble = T))
+normalized_counts()
+##Adding a metadata smr_celltype from monocle to seurat object seu
+ctype<- colData(view)$smr_celltype
+names(ctype)<-colnames(view)
+
+seu$smr_celltype<-ctype
+
+DimPlot(seu, group.by = "smr_celltype", cols = sfc(26))
+DimPlot_scCustom(seu, group.by = "dataset")
+DimPlot_scCustom(seu, group.by = "seurat_clusters", label = T)
+
+```
+
+
+
+```{r, eval=F}
+
+#Sys.setenv(GITHUB_PAT="")
+#BiocManager::install('romanhaa/cerebroApp')
+library(cerebroApp)
+seu$nUMI<-colSums(seu@assays$RNA@counts)
+seu$nGene<-colSums(seu@assays$RNA@counts)
+cer<-cerebroApp::exportFromSeurat(seu, groups = colnames(seu@meta.data), experiment_name = "Exp649", organism = "mouse", file = file.path(RES_DIR, "Exp649_Cerebrov2.crb"))
+
+
+launchCerebro(
+  version = "v1.3",
+  crb_file_to_load = file.path(RES_DIR, "Exp649_Cerebro.crb"),
+  mode = "closed"
+)
+
+
+
+
+```
+
+# DE lists
+
+## 1. Cluster 4 vs 2
+
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "4", ident.2 = "2")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_4v2.xlsx"))
+```
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+xfun::embed_file(path = file.path(RES_DIR, "DE_4v2.xlsx"), text = "Download DE List")
+```
+
+
+## 2. Cluster 2 vs 3
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "2", ident.2 = "3")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_2v3.xlsx"))
+```
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+xfun::embed_file(path = file.path(RES_DIR, "DE_2v3.xlsx"), text = "Download DE List")
+```
+
+## 3. Cluster 2 vs 0
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "2", ident.2 = "0")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_2v0.xlsx"))
+```
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+xfun::embed_file(path = file.path(RES_DIR, "DE_2v0.xlsx"), text = "Download DE List")
+```
+
+## 4. Cluster 2 vs 1
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "2", ident.2 = "1")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_2v1.xlsx"))
+```
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+xfun::embed_file(path = file.path(RES_DIR, "DE_2v1.xlsx"), text = "Download DE List")
+```
+
+## 5. Cluster 3 vs 1
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "3", ident.2 = "1")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_3v1.xlsx"))
+```
+
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+xfun::embed_file(path = file.path(RES_DIR, "DE_3v1.xlsx"), text = "Download DE List")
+```
+
+
+## 6. Cluster 3 vs 0
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "3", ident.2 = "0")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_3v0.xlsx"))
+```
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+xfun::embed_file(path = file.path(RES_DIR, "DE_3v0.xlsx"), text = "Download DE List")
+```
+
+
+## 7. Cluster 3 vs 4
+```{r, echo=F, message=F, warning=F}
+tm1<-FindMarkers(seu, ident.1 = "3", ident.2 = "4")
+tm1$gene<-rownames(tm1)
+openxlsx::write.xlsx(tm1, file = file.path(RES_DIR, "DE_3v4.xlsx"))
+
+```
+
+#### Download table
+```{r, echo=F, message=F, warning=F}
+
+xfun::embed_file(path = file.path(RES_DIR, "DE_3v4.xlsx"), text = "Download DE List")
+```
+
+## check for any cell that has both xist(x) and Ddx3y(y) expression , call it as a duplicate
+```{r}
+# if a cell has both call it as Yes else NO and try to get rid ( create anew column)
+```
+
+
+### Gene score analysis of IL7( quick check before doing GSEA)
+```{r}
+library(msigdbr)
+library(fgsea)
+Idents(seu)<-"seurat_clusters"
+##markers <- FindAllMarkers(seu)
+tm1<-FindAllMarkers(seu, only.pos = T)
+
+tm1$gene<-rownames(tm1)
+
+
+m_df<- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:BIOCARTA")
+m_df<- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:WIKIPATHWAYS")
+#pick one gene set then run the next lines
+fgsea_sets<- m_df %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets$WP_IL7_SIGNALING_PATHWAY
+
+DefaultAssay(seu)<- "RNA"
+seu<-AddModuleScore(seu, features = list(fgsea_sets$WP_IL7_SIGNALING_PATHWAY), name= "IL7")
+FeaturePlot_scCustom(seu, features= "IL71")
+
+
+```
+
+## excluding common 4v3 and 2v3= GVHD independent IFNg-independent
+```{r}
+genesets<- list(c("Dmbt1","Tff3","Spink4","Fabp6","Slc25a5","Agr2","Hspd1","H1f0","Set","Lypd8", "Guca2a","Actr3","H3f3b","Smarca5","Tspan1","Crip1","Ssr2","Picalm","Etfa","Sae1","Kpnb1", "Cox5a","Calm1","Cnbp","Mrfap1","Ssr3","Hnrnpa3","Uqcrfs1","Sh3bgrl3","Atp5f1","Arf1","Atp1a1","Hnrnpa2b1","Ddost","Gmds","Vdac1","Rac1","Ywhae","Rbbp7","Lsm5","Cox7a2","Hnrnpf","Sod1","S100a6","Prkar2a","Atp5a1","Ybx1","Galnt1","Pdss1","Ostc","Dpy30","Selenot","Prelid1","Prr11","Uqcrc2","Serbp1","Rpa3","Aqp4","Prdx1","Pdia5","Pycard","Tpd52","Fcgbp","Reg4","Bzw1","Ywhaz","Ruvbl2","Nudcd2","Knstrn","Hsd17b12","Capza1","1810037I17Rik","Nap1l1","Selenof","Ppp1cc","Rtn3","Cct2","Stip1","Ube2a","Tmem97","Canx","Rnps1","Hmga1","Reep4","Atp5b","Cenpw","Aspm","Hspe1","Arl1","Ghitm","Tmed2","Odc1","Actr2","Eif2s1","Cnih4","Itga6","Ybx3","Cox6a1","Ppp1r14b","Tmem54","Arpc5","Clic4","Gpsm2","Ubald2","Ndufb6","Ppp1ca","Rfc5","Calm3","Hspa9","Ndufab1","Cdkn3","Asns","Gars","Ftl1","Txnl1","Aurka","Golm1","Gsto1","Ssr1","Cdca5","Idh1","Ube2l3","Syngr2","Suz12","Mtch2","Cpne3","Rad23b","Tomm22","Hprt","Snu13"))
+
+DefaultAssay(seu)<- "RNA"
+seu<-AddModuleScore(seu, features = genesets, name= "gs")
+FeaturePlot_scCustom(seu, features= "gs1")
+
+
+
+
+```
+
+## GSEA 
+```{r}
+library(pbmcapply)
+x<-"2"
+library(presto)
+
+# clus.genes <- wilcoxauc(seu, 'seurat_clusters')
+# clus.genes<-clus.genes[!duplicated(clus.genes$feature),]
+
+# genes<- tm1 %>%
+#     dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+#     dplyr::filter(!str_detect(gene, "^Rps"))%>%
+#     dplyr::filter(!str_detect(gene, "^mt-")) %>%
+#     dplyr::filter(cluster == "2" | cluster == "3")
+# #write.csv(genes, file.path(RES_DIR,"cluster2_3_markers.csv"))
+x<-"2"
+tm1<-FindAllMarkers(seu)
+
+tm1<-tm1[!duplicated(tm1$gene),]## only unique genes
+
+tm1[tm1$cluster == "3",]
+
+m_df<- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP")
+#pick one gene set then run the next lines
+fgsea_sets<- m_df %>% split(x = .$gene_symbol, f = .$gs_name)
+
+#rownames(seu)
+x<-"2"
+
+library(stringr)
+gsea_list<-pbmclapply(levels(factor(seu$seurat_clusters)), function(x){
+  genes<- tm1 %>%
+    dplyr::filter(!str_detect(gene ,"^Rpl")) %>%
+    dplyr::filter(!str_detect(gene, "^Rps"))%>%
+    dplyr::filter(!str_detect(gene, "^mt-")) %>%
+    dplyr::filter(cluster == x) %>%
+    dplyr::arrange(desc(avg_log2FC)) %>% 
+    dplyr::select(gene, avg_log2FC)
+
+  ranks<- deframe(genes)
+  fgseaRes<- fgsea(fgsea_sets, stats = ranks, nPermSimple = 10000)
+  fgseaResTidy <- fgseaRes %>%
+    as_tibble() %>%
+    arrange(desc(NES))
+   fgseaResTidy %>% 
+   arrange(padj) %>% 
+    head()
+  fgseaResTidy
+}, mc.cores = detectCores())
+ 
+names(gsea_list)<-(levels(factor(seu$seurat_clusters)))
+gsea_list2 <- lapply(1:length(gsea_list), function(x){
+  gsea_list[[x]]$subgroup<- rep(names(gsea_list)[[x]], length(gsea_list[[x]]$pval))
+  gsea_list[[x]]
+})
+df <- do.call("rbind",gsea_list2)
+
+#select significant pathways
+top_tmers<- df %>%
+  dplyr::filter(pval < 0.001)%>%
+  dplyr::filter(abs(NES) >2)%>%
+  dplyr::group_by(subgroup) 
+
+#get unique pathways
+top_pathways<-fgsea_sets[unique(top_tmers$pathway)]
+
+#get values from other groups of top pathways
+all_values<- df[which(df$pathway %in% names(top_pathways)),]
+all_values<- all_values %>%  dplyr::arrange(desc(NES)) %>% group_by(subgroup)
+all_values$pathway<-factor(all_values$pathway, levels = rev(names(top_pathways)))
+all_values$sig<-all_values$pval
+all_values$sig[all_values$pval < 0.05]<-"YES"
+all_values$sig[all_values$pval > 0.05]<-"NO"
+
+#make dot plot of gene set enrichments
+pal <- ArchR::paletteContinuous("coolwarm")
+ggplot(data = all_values %>% dplyr::filter(sig == "YES"), aes(x = subgroup, y = pathway)) + 
+  geom_point(aes(size = size, fill = NES), alpha = 0.75, shape = 21)+theme_bw()+NoGrid()+scale_fill_gradientn(colors = pal)
+
+# only plot the top 20 pathways
+ggplot(gsea_list2[[4]] %>% filter(pval < 0.05) %>% head(n= 20), aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill= NES < 7.5)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="Hallmark pathways NES from GSEA") + 
+  theme_minimal()
+
+temp<-gsea_list2[[4]]
+
+```
+
+
+```{r - fsgea function; run this before GSEA analysis, echo=FALSE, include=TRUE}
+plot_fsgeaALL_bargraph<-function(genedb, genelist_wilcox, cluster, dbname, NES_cutoff, q_value, height=10, width=10){
+#The NES cutoff plots only gene sets above a certain NES; Plots ALL pathways regardless of p-value
+  set.seed(1234)
+  #print(paste0("q-value: ",q_value))
+  #q_value<-0.2
+  #genedb<- m_t2g
+  #genelist_wilcox <- seu.genes46
+  #cluster <- c("4")
+  #head(genelist_wilcox)
+  #dplyr::count(genelist_wilcox,group)
+  
+  fgsea_sets<- genedb %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+  
+  #genes45<- genelist_wilcox %>%
+    #mutate(auc = auc - 0.5) %>%
+    #group_by(feature) %>% # should be 2 rows per feature (group 4 and group 5)
+    #mutate(adj = rnorm(n = 1, sd = 0.0001), auc = if_else(group == "4", auc + adj, auc - adj)) %>%
+    #arrange(group, desc(auc)) %>%
+    #dplyr::select(group, feature, auc)
+    
+  #genes <- genes45 %>% filter(group == cluster) %>% dplyr::select(-group)
+  genes <- genelist_wilcox %>%
+    mutate(auc = auc - 0.5) %>%
+    group_by(feature) %>%
+#    mutate(adj = rnorm(n = 1, sd = 0.0001), auc = if_else(group == cluster, auc + adj, auc - adj)) %>%
+    dplyr::filter(group == cluster) %>%
+    arrange(desc(auc)) %>% 
+    dplyr::select(feature, auc) 
+  
+  ranks<- deframe(genes) #Restructures based on tibble package
+  #ranks[ranks>0] <- 2*ranks[ranks>0]
+
+  fgseaRes<- fgsea(fgsea_sets, stats = ranks, nperm = 1000000, nproc=8)
+  
+  fgseaResTidy <- fgseaRes %>%
+    as_tibble() %>%
+    arrange(desc(NES))
+  results <- do.call(cbind, fgseaResTidy[,1:5])
+  
+  smallest<- order(fgseaResTidy$NES)<11 & fgseaResTidy$pval <0.05 #smallest NES with p-values < 0.05
+  largest <- order(fgseaResTidy$NES)>max(order(fgseaResTidy$NES))-10 & fgseaResTidy$pval <0.05 #largest NES with p-values < 0.05
+  
+  
+  write.csv(results, file.path(FIG_DIR, paste0("[Suppl] GSEA - ", dbname, " - Group ", cluster, ".csv")))
+  fgseaResTidy$pathway<-gsub("HALLMARK_","",fgseaResTidy$pathway)
+  
+  pdf(file.path(FIG_DIR, paste0("[Suppl] - GSEA_Enrichment" , dbname,  "_Gp", cluster," ALL p with NES cutoff_", NES_cutoff, ".pdf")), width, height)
+  print(ggplot(fgseaResTidy[abs(fgseaResTidy$NES)>NES_cutoff,], aes(reorder(pathway, NES), NES)) + geom_col(aes(fill= ES > 0)) + coord_flip() + labs(x="Pathway", y="Normalized Enrichment Score", title=paste0("Pathways with NES cutoff: ", NES_cutoff)) + theme_classic())
+  dev.off()
+  return(ranks)
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Albert's Stuff 
+
+```{r - features plots}
+
+
+DimPlot(seu, label = T, label.size = 16, pt.size = 2, label.box = F)+scale_fill_manual(values = rep("white", 20))
+DimPlot(seu, group.by = "IAIE_clu2", pt.size=2)
+DimPlot(seu, group.by= "group" , pt.size = 2)
+VlnPlot(seu, features = c("log_RNA"), pt.size = 0)
+VlnPlot(seu, features = c("percent.mt"), pt.size = 0)
+
+
+my_comparisons <- list( c("4", "5"), c("5", "6"), c("4", "6"), c("3","4"), c("3","5"), c("3","6"))
+VlnPlot(seu, features = c("Ciita"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+
+VlnPlot(seu, features = c("H2-Aa"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+
+VlnPlot(seu, features = c("H2-Ab1"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+
+
+FeaturePlot_scCustom(seu, features = "Ciita", label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+FeaturePlot_scCustom(seu, features = "H2-Aa", label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+FeaturePlot_scCustom(seu, features = "H2-Ab1", label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+my_comparisons <- list( c("Female_IFNGRneg", "Female_IFNGRpos"), 
+                        c("Male_IFNGRneg", "Male_IFNGRpos"), 
+                        c("Female_IFNGRneg", "Male_IFNGRneg"), 
+                        c("Female_IFNGRpos","Male_IFNGRpos"), 
+                        c("Female_IFNGRneg","Male_IFNGRpos"), 
+                        c("Female_IFNGRpos","Male_IFNGRneg"))
+
+VlnPlot(seu, features = c("Ciita"), group.by="group", pt.size = 0)+ stat_summary(fun.y = mean, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+
+VlnPlot(seu, features = c("H2-Aa"), group.by="group", pt.size = 0)+ stat_summary(fun.y = mean, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+
+VlnPlot(seu, features = c("H2-Ab1"), group.by="group", pt.size = 0)+ stat_summary(fun.y = mean, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+
+VlnPlot(seu, features = c("I-A-I-E"), group.by="group", pt.size = 0)+ stat_summary(fun.y = mean, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 12)
+
+
+### Protein Plots #####
+DefaultAssay(seu) <- "ADT"
+rownames(seu@assays$ADT)
+FeaturePlot_scCustom(seu, features = "I-A-I-E")# MHC-class II protein
+FeaturePlot_scCustom(seu, features = "H-2Kb")# MHC class I
+FeaturePlot_scCustom(seu, features = "CD45.2")
+
+VlnPlot(seu, features =  c("I-A-I-E"), group.by = "seurat_clusters", pt.size = 0)
+VlnPlot(seu, features =  c("H2-Ab1"), group.by = "seurat_clusters", pt.size = 0)# gene(rna) level class II expression
+
+FeaturePlot_scCustom(seu, features = "I-A-I-E", label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+FeaturePlot_scCustom(seu, features = "H-2Kb", label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+FeaturePlot_scCustom(seu, features = "CD45.2", label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+my_comparisons <- list( c("4", "5"), c("5", "6"), c("4", "6"), c("3","4"), c("3","5"), c("3","6"))
+VlnPlot(seu, features =  c("I-A-I-E"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 12)
+
+VlnPlot(seu, features =  c("H-2Kb"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 14)
+
+VlnPlot(seu, features =  c("CD45.2"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 12)
+
+
+
+```
+
+
+
+
+### Albert's GSEA anlaysis
+
+```{r - fsgea function; run this before GSEA analysis, echo=FALSE, include=TRUE}
+plot_fsgea_bargraph<-function(genedb, genelist_wilcox, cluster, dbname, NES_cutoff, height=10, width=10){
+#The NES cutoff plots only gene sets above a certain NES
+  set.seed(1234)
+  #genedb<- m_t2g
+  #genelist_wilcox <- seu.genes45
+  #cluster <- c("5")
+  head(genelist_wilcox)
+  fgsea_sets<- genedb %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+    
+  genes <- genelist_wilcox %>%
+    dplyr::filter(group == cluster) %>%
+    arrange(desc(auc)) %>% 
+    dplyr::select(feature, auc) 
+
+  ranks<- deframe(genes) #Restructures based on tibble package
+  #fgseaRes<- fgsea(fgsea_sets, stats = ranks, nperm = 1000,nproc=8)#,scoreType="pos")
+  fgseaRes<- fgseaMultilevel(fgsea_sets, stats = ranks, nproc=8, scoreType="pos")
+  
+  fgseaResTidy <- fgseaRes %>%
+    as_tibble() %>%
+    arrange(desc(NES))
+  results <- do.call(cbind, fgseaResTidy[,1:5])
+  write.csv(results, file.path(FIG_DIR, paste0("[Suppl] GSEA - ", dbname, " - Group ", cluster, ".csv")))
+  fgseaResTidy$pathway<-gsub("HALLMARK_","",fgseaResTidy$pathway)
+  
+  pdf(file.path(FIG_DIR, paste0("[Suppl] - GSEA_Enrichment" , dbname,  "_Gp", cluster," ALL sigp with NES cutoff_", NES_cutoff, ".pdf")), width, height)
+  print(ggplot(fgseaResTidy[fgseaResTidy$padj<0.05 & abs(fgseaResTidy$NES)>NES_cutoff,], aes(reorder(pathway, NES), NES)) + geom_col(aes(fill= ES > 0)) + coord_flip() + labs(x="Pathway", y="Normalized Enrichment Score", title=paste0("Pathways with q<0.05 from GSEA with NES cutoff: ", NES_cutoff)) + theme_classic())
+  dev.off()
+  return(ranks)
+}
+
+```
+
+```{r GSEA}
+
+#========== Figure 5E GSEA ==========#
+#---- GSEA analysis using fsgea ----#
+#https://crazyhottommy.github.io/scRNA-seq-workshop-Fall-2019/scRNAseq_workshop_3.html
+library(presto)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(fgsea)
+library(msigdbr)
+
+seu.genes <- wilcoxauc(seu, 'seurat_clusters')
+seu.genes2 <- wilcoxauc(seu,'group')
+
+# for GSEA, we need the information of all genes, Seurat is just too slow if we test
+# all 20,000 genes. instead let's try presto which performs a fast Wilcoxon rank sum test 
+
+#---- Hallmark Gene Sets ----#
+m_t2g <- msigdbr(species = "Mus musculus", category = "H") %>% dplyr::select(gs_name, gene_symbol) 
+fgsea_sets<- m_t2g %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+
+fsgea_2_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"2","Hallmark Set",0, height=6, width=6)
+fsgea_3_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"3","Hallmark Set",0, height=6, width=6)
+fsgea_4_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"4","Hallmark Set",0, height=6, width=6)
+fsgea_5_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"5","Hallmark Set",0, height=6, width=6)
+fsgea_6_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"6","Hallmark Set",0, height=6, width=6)
+
+fsgea_2_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"2","Hallmark Set Multi - pos",0, height=6, width=6)
+fsgea_3_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"3","Hallmark Set Multi - pos",0, height=6, width=6)
+fsgea_4_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"4","Hallmark Set Multi - pos",0, height=6, width=6)
+fsgea_5_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"5","Hallmark Set Multi - pos",0, height=6, width=6)
+fsgea_6_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes,"6","Hallmark Set Multi - pos",0, height=6, width=6)
+#----- Comparing between groups -----#
+
+
+#----- FOR PUBLICATION / MOTOKO -----#
+seu.genes45 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5'))
+
+fsgea_45_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5 Multi - pos",0, height=6, width=6)
+fsgea_45_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5 Multi - pos",0, height=6, width=6)
+
+# Mutate with AUC = AUC-0.5
+fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+
+#Add a bit of randomness
+fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5 test2",0, height=6, width=6)
+fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5 test2",0, height=6, width=6)
+
+seu.genes56 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('5','6'))
+fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes56,"5","Hallmark Set 5v6",0, height=6, width=6)
+fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes56,"6","Hallmark Set 5v6",0, height=6, width=6)
+
+seu.genes36 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('3','6'))
+fsgea_36_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes36,"3","Hallmark Set 3v6",0, height=6, width=6)
+fsgea_36_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes36,"6","Hallmark Set 3v6",0, height=6, width=6)
+
+seu.genes35 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('3','5'))
+fsgea_35_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes35,"3","Hallmark Set 3v5",0, height=6, width=6)
+fsgea_35_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes35,"5","Hallmark Set 3v5",0, height=6, width=6)
+
+seu.genes456 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5','6'))
+fsgea_456_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes456,"4","Hallmark Set 4v5_6",0, height=6, width=6)
+
+
+temp2H<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set - Group 2.csv"))
+temp3H<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set - Group 3.csv"))
+temp4H<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set - Group 4.csv"))
+temp5H<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set - Group 5.csv"))
+temp6H<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set - Group 6.csv"))
+
+#------ Plot NES Differences  ------#
+# Cluster 5-2 vs. 4-2 (with direct comparison with NES)
+{
+  seu.genes45 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5'))
+  fsgea_45_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5",0, height=6, width=6)
+  fsgea_45_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5",0, height=6, width=6)
+  
+  temp4H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 4v5 - Group 4.csv"))
+  temp5H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 4v5 - Group 5.csv"))
+  {
+    pathwaysHlist <- temp4H2$pathway
+    pathwaysH2_diff_5_4 <- NULL
+    
+    for(i in 1:length(pathwaysHlist))
+    {
+      if((pathwaysHlist[i] %in% temp5H2$pathway) & (pathwaysHlist[i] %in% temp4H2$pathway))
+      {
+        pathwaysH2_diff_5_4[i] <- temp5H2$NES[temp5H2$pathway==pathwaysHlist[i]] - temp4H2$NES[temp4H2$pathway==pathwaysHlist[i]]
+      }
+    }
+    
+  
+    diff<-pathwaysH2_diff_5_4
+    list<-pathwaysHlist
+    df <- data.frame(list=list,NES_diff=diff)
+    df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  
+    color=rep("red",length(list))
+    color[df$NES_diff>0] <- "blue"
+    
+    pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 5_4.pdf"), height=10, width=10)
+    ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+    dev.off()
+  }
+}
+
+
+# Cluster 6-2 vs. 4-2 (with direct comparison with NES)
+{
+  seu.genes46 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','6'))
+  fsgea_46_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes46,"4","Hallmark Set 4v6",0, height=6, width=6)
+  fsgea_46_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes46,"6","Hallmark Set 4v6",0, height=6, width=6)
+  
+  temp4H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 4v6 - Group 4.csv"))
+  temp6H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 4v6 - Group 6.csv"))
+  {
+    pathwaysHlist <- temp4H2$pathway
+    pathwaysH2_diff_6_4 <- NULL
+    
+    for(i in 1:length(pathwaysHlist))
+    {
+      if((pathwaysHlist[i] %in% temp6H2$pathway) & (pathwaysHlist[i] %in% temp4H2$pathway))
+      {
+        pathwaysH2_diff_6_4[i] <- temp6H2$NES[temp6H2$pathway==pathwaysHlist[i]] - temp4H2$NES[temp4H2$pathway==pathwaysHlist[i]]
+      }
+    }
+    
+  
+    diff<-pathwaysH2_diff_6_4
+    list<-pathwaysHlist
+    df <- data.frame(list=list,NES_diff=diff)
+    df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  
+    color=rep("red",length(list))
+    color[df$NES_diff>0] <- "blue"
+    
+    pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 6_4.pdf"), height=10, width=10)
+    ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=16))+theme(axis.text.y=element_text(size=12))
+    dev.off()
+  }
+
+}
+
+
+# Cluster 6-2 vs. 5-2 (with direct comparison with NES)
+{
+  seu.genes56 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('5','6'))
+  fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes56,"5","Hallmark Set 5v6",0, height=6, width=6)
+  fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes56,"6","Hallmark Set 5v6",0, height=6, width=6)
+  
+  temp5H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 5v6 - Group 5.csv"))
+  temp6H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 5v6 - Group 6.csv"))
+  {
+    pathwaysHlist <- temp5H2$pathway
+    pathwaysH2_diff_6_5 <- NULL
+    
+    for(i in 1:length(pathwaysHlist))
+    {
+      if((pathwaysHlist[i] %in% temp6H2$pathway) & (pathwaysHlist[i] %in% temp5H2$pathway))
+      {
+        pathwaysH2_diff_6_5[i] <- temp6H2$NES[temp6H2$pathway==pathwaysHlist[i]] - temp5H2$NES[temp5H2$pathway==pathwaysHlist[i]]
+      }
+    }
+    
+  
+    diff<-pathwaysH2_diff_6_5
+    list<-pathwaysHlist
+    df <- data.frame(list=list,NES_diff=diff)
+    df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  
+    color=rep("red",length(list))
+    color[df$NES_diff>0] <- "blue"
+    
+    pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 6_5.pdf"), height=10, width=10)
+    ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=16))+theme(axis.text.y=element_text(size=12))
+    dev.off()
+  }
+
+}
+
+
+# Cluster 6-2 vs. 3-2 (with direct comparison with NES)
+{
+  seu.genes36 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('3','6'))
+  fsgea_36_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes36,"3","Hallmark Set 3v6",0, height=6, width=6)
+  fsgea_36_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes36,"6","Hallmark Set 3v6",0, height=6, width=6)
+  
+  temp3H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 3v6 - Group 3.csv"))
+  temp6H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 3v6 - Group 6.csv"))
+  {
+    pathwaysHlist <- temp3H2$pathway
+    pathwaysH2_diff_6_3 <- NULL
+    
+    for(i in 1:length(pathwaysHlist))
+    {
+      if((pathwaysHlist[i] %in% temp6H2$pathway) & (pathwaysHlist[i] %in% temp3H2$pathway))
+      {
+        pathwaysH2_diff_6_3[i] <- temp6H2$NES[temp6H2$pathway==pathwaysHlist[i]] - temp3H2$NES[temp3H2$pathway==pathwaysHlist[i]]
+      }
+    }
+    
+  
+    diff<-pathwaysH2_diff_6_3
+    list<-pathwaysHlist
+    df <- data.frame(list=list,NES_diff=diff)
+    df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  
+    color=rep("red",length(list))
+    color[df$NES_diff>0] <- "blue"
+    
+    pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 6_3.pdf"), height=10, width=10)
+    ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=16))+theme(axis.text.y=element_text(size=12))
+    dev.off()
+  }
+
+}
+
+
+# Cluster 5-2 vs. 3-2 (with direct comparison with NES)
+{
+  seu.genes35 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('3','5'))
+  fsgea_35_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes35,"3","Hallmark Set 3v5",0, height=6, width=6)
+  fsgea_35_ranks <- plot_fsgea_bargraph(m_t2g,seu.genes35,"5","Hallmark Set 3v5",0, height=6, width=6)
+  
+  temp3H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 3v5 - Group 3.csv"))
+  temp5H2 <-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - Hallmark Set 3v5 - Group 5.csv"))
+  {
+    pathwaysHlist <- temp3H2$pathway
+    pathwaysH2_diff_5_3 <- NULL
+    
+    for(i in 1:length(pathwaysHlist))
+    {
+      if((pathwaysHlist[i] %in% temp5H2$pathway) & (pathwaysHlist[i] %in% temp3H2$pathway))
+      {
+        pathwaysH2_diff_5_3[i] <- temp5H2$NES[temp5H2$pathway==pathwaysHlist[i]] - temp3H2$NES[temp3H2$pathway==pathwaysHlist[i]]
+      }
+    }
+    
+  
+    diff<-pathwaysH2_diff_5_3
+    list<-pathwaysHlist
+    df <- data.frame(list=list,NES_diff=diff)
+    df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  
+    color=rep("red",length(list))
+    color[df$NES_diff>0] <- "blue"
+    
+    pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 5_3.pdf"), height=10, width=10)
+    ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+    dev.off()
+  }
+
+}
+
+
+#----- FOR PUBLICATION / MOTOKO -----#
+#### Comparison by Seurat Cluster - Mutate Method using AUC = AUC - 0.5 per Dan Hippe ###
+{
+  # Mutate Method (Cluster 4 vs. 5) - 
+  {
+    seu.genes45 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_45_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    
+    #In addition, plot all pathways regardless of p-value or NES
+    fsgea_45_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes45,"4","Hallmark Set 4v5 Mutate AUC, no p-value",0, q_value=0.2, height=10, width=6)
+    fsgea_45_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes45,"5","Hallmark Set 4v5 Mutate AUC, no p-value",0, q_value=0.2, height=10, width=6)
+  }
+  
+  # Mutate Method (Cluster 4 vs. 6)
+  {
+    seu.genes46 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','6'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_46_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes46,"4","Hallmark Set 4v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_46_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes46,"6","Hallmark Set 4v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    #In addition, plot all pathways regardless of p-value or NES
+    fsgea_46_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes46,"4","Hallmark Set 4v6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    fsgea_46_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes46,"6","Hallmark Set 4v6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+  }
+  
+  # Mutate Method (Cluster 5 vs. 6)
+  {
+    seu.genes56 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('5','6'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_56_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes56,"5","Hallmark Set 5v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_56_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes56,"6","Hallmark Set 5v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    #In addition, plot all pathways regardless of p-value or NES
+    fsgea_56_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes56,"5","Hallmark Set 5v6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    fsgea_56_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes56,"6","Hallmark Set 5v6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)  
+  }
+  
+  # Mutate Method (Cluster 3 vs. 6)
+  {
+    seu.genes36 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('3','6'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_36_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes36,"3","Hallmark Set 3v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_36_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes36,"6","Hallmark Set 3v6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    #In addition, plot all pathways regardless of p-value or NES
+    fsgea_36_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes36,"3","Hallmark Set 3v6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    fsgea_36_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes36,"6","Hallmark Set 3v6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    
+  }
+  
+  # Mutate Method (Cluster 3 vs. 5)
+  {
+    seu.genes35 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('3','5'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_35_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes35,"3","Hallmark Set 3v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_35_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes35,"5","Hallmark Set 3v5 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    #In addition, plot all pathways regardless of p-value or NES
+    fsgea_35_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes35,"3","Hallmark Set 3v5 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    fsgea_35_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes35,"5","Hallmark Set 3v5 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    
+  }
+  # Mutate Method (Cluster 4 vs. 5+6)
+  {
+    seu.genes456 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('4','5','6'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_456_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes456,"4","Hallmark Set 4v5+6 Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    #In addition, plot all pathways regardless of p-value or NES
+    fsgea_456_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes456,"4","Hallmark Set 4v5+6 Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    
+  }
+}
+
+#### Comparison by Group (IFNgR Status/ FvM)
+{
+  
+  #----- Plot TCRBs individually -----#
+
+
+
+  seu$group_Male_IFNGRneg <- seu$group=="Male_IFNGRneg"
+  DimPlot(seu, cells=seu$group_Male_IFNGRneg, group.by= "group_Male_IFNGRneg" , pt.size = 2, cols="Gray")
+  
+  seu$group_Female_IFNGRneg <- seu$group=="Female_IFNGRneg"
+  DimPlot(seu, cells=seu$group_Female_IFNGRneg, group.by= "group_Female_IFNGRneg" , pt.size = 2, cols="Gray")
+
+  seu$group_Male_IFNGRpos <- seu$group=="Male_IFNGRpos"
+  DimPlot(seu, cells=seu$group_Male_IFNGRpos, group.by= "group_Male_IFNGRpos" , pt.size = 2, cols="Gray")
+  
+  seu$group_Female_IFNGRpos <- seu$group=="Female_IFNGRpos"
+  DimPlot(seu, cells=seu$group_Female_IFNGRpos, group.by= "group_Female_IFNGRpos" , pt.size = 2, cols="Gray")
+  
+  
+    
+  # Mutate Method (Cluster IFNgR-F vs. IFNgR-M) - 
+  {
+    
+    seu.genes_groups <- wilcoxauc(seu,'group', groups_use=c('Female_IFNGRneg','Male_IFNGRneg'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_groups_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes_groups,"Female_IFNGRneg","Hallmark Set FvM IFNGRneg Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_groups_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes_groups,"Male_IFNGRneg","Hallmark Set MvF IFNGRneg Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    
+    # No P-value, Mutate with AUC = AUC-0.5
+    fsgea_groups_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes_groups,"Female_IFNGRneg","Hallmark Set FvM IFNGRneg Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    fsgea_groups_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes_groups,"Male_IFNGRneg","Hallmark Set MvF IFNGRneg Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+  }
+  
+    # Mutate Method (Cluster IFNgR-M vs. IFNgR+M) - 
+  {
+    
+    seu.genes_groups2 <- wilcoxauc(seu,'group', groups_use=c('Male_IFNGRpos','Male_IFNGRneg'))
+    
+    # Mutate with AUC = AUC-0.5
+    fsgea_groups_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes_groups2,"Male_IFNGRpos","Hallmark Set M IFNGRpos_v_neg Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    fsgea_groups_ranks <- plot_fsgeaTEST_bargraph(m_t2g,seu.genes_groups2,"Male_IFNGRneg","Hallmark Set M IFNGRneg_v_pos Mutate AUC, q_0.2",0, q_value=0.2, height=6, width=6)
+    
+    
+    # No P-value, Mutate with AUC = AUC-0.5
+    fsgea_groups_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes_groups2,"Male_IFNGRpos","Hallmark Set M IFNGRpos_v_neg Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+    fsgea_groups_ranks <- plot_fsgeaALL_bargraph(m_t2g,seu.genes_groups2,"Male_IFNGRneg","Hallmark Set M IFNGRneg_v_pos Mutate AUC, no p-value",0, q_value=0.2, height=6, width=6)
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+# Cluster 6 vs. 4
+{
+  pathwaysHlist <- temp4H$pathway
+  pathwaysH_diff_6_4 <- NULL
+  
+  for(i in 1:length(pathwaysHlist))
+  {
+    if((pathwaysHlist[i] %in% temp6H$pathway) & (pathwaysHlist[i] %in% temp4H$pathway))
+    {
+      pathwaysH_diff_6_4[i] <- temp6H$NES[temp6H$pathway==pathwaysHlist[i]] - temp4H$NES[temp4H$pathway==pathwaysHlist[i]]
+    }
+  }
+  diff<-pathwaysH_diff_6_4
+  list<-pathwaysHlist
+  df <- data.frame(list=list,NES_diff=diff)
+  df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  df
+  color=rep("red",length(list))
+  color[df$NES_diff>0] <- "blue"
+  
+  pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 6_4.pdf"), height=10, width=10)
+  ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+  dev.off()
+}
+
+# Cluster 6 vs. 5
+{
+  pathwaysHlist <- temp5H$pathway
+  pathwaysH_diff_6_5 <- NULL
+  
+  for(i in 1:length(pathwaysHlist))
+  {
+    if((pathwaysHlist[i] %in% temp6H$pathway) & (pathwaysHlist[i] %in% temp5H$pathway))
+    {
+      pathwaysH_diff_6_5[i] <- temp6H$NES[temp6H$pathway==pathwaysHlist[i]] - temp5H$NES[temp5H$pathway==pathwaysHlist[i]]
+    }
+  }
+  diff<-pathwaysH_diff_6_5
+  list<-pathwaysHlist
+  df <- data.frame(list=list,NES_diff=diff)
+  df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  df
+  color=rep("red",length(list))
+  color[df$NES_diff>0] <- "blue"
+  
+  pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 6_5.pdf"), height=10, width=10)
+  ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+  dev.off()
+}
+
+
+# Cluster 6 vs. 3
+{
+  pathwaysHlist <- temp3H$pathway
+  pathwaysH_diff_6_3 <- NULL
+  
+  for(i in 1:length(pathwaysHlist))
+  {
+    if((pathwaysHlist[i] %in% temp6H$pathway) & (pathwaysHlist[i] %in% temp3H$pathway))
+    {
+      pathwaysH_diff_6_3[i] <- temp6H$NES[temp6H$pathway==pathwaysHlist[i]] - temp3H$NES[temp3H$pathway==pathwaysHlist[i]]
+    }
+  }
+  diff<-pathwaysH_diff_6_3
+  list<-pathwaysHlist
+  df <- data.frame(list=list,NES_diff=diff)
+  df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  df
+  color=rep("red",length(list))
+  color[df$NES_diff>0] <- "blue"
+  
+  pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 6_3.pdf"), height=10, width=10)
+  ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+  dev.off()
+}
+
+# Cluster 5 vs. 3
+{
+  pathwaysHlist <- temp3H$pathway
+  pathwaysH_diff_5_3 <- NULL
+  
+  for(i in 1:length(pathwaysHlist))
+  {
+    if((pathwaysHlist[i] %in% temp5H$pathway) & (pathwaysHlist[i] %in% temp3H$pathway))
+    {
+      pathwaysH_diff_5_3[i] <- temp5H$NES[temp5H$pathway==pathwaysHlist[i]] - temp3H$NES[temp3H$pathway==pathwaysHlist[i]]
+    }
+  }
+  diff<-pathwaysH_diff_5_3
+  list<-pathwaysHlist
+  df <- data.frame(list=list,NES_diff=diff)
+  df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  df
+  color=rep("red",length(list))
+  color[df$NES_diff>0] <- "blue"
+  
+  pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 5_3.pdf"), height=10, width=10)
+  ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+  dev.off()
+}
+
+
+# Cluster 5 vs. 4
+{
+  pathwaysHlist <- temp4H$pathway
+  pathwaysH_diff_5_4 <- NULL
+  
+  for(i in 1:length(pathwaysHlist))
+  {
+    if((pathwaysHlist[i] %in% temp5H$pathway) & (pathwaysHlist[i] %in% temp4H$pathway))
+    {
+      pathwaysH_diff_5_4[i] <- temp5H$NES[temp5H$pathway==pathwaysHlist[i]] - temp4H$NES[temp4H$pathway==pathwaysHlist[i]]
+    }
+  }
+  diff<-pathwaysH_diff_5_4
+  list<-pathwaysHlist
+  df <- data.frame(list=list,NES_diff=diff)
+  df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+  
+  color=rep("red",length(list))
+  color[df$NES_diff>0] <- "blue"
+  
+  pdf(file.path(FIG_DIR, "GSEA DIFF_Hallmark 5_4.pdf"), height=10, width=10)
+  ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()+theme_classic()+theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=12))
+  dev.off()
+}
+
+
+#------ Plot gene signatures onto map ------#
+rna_cols<-paletteContinuous(n=8)[c(1:3, 6:8)]
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_TNFA_SIGNALING_VIA_NFKB",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_TNF")
+FeaturePlot_scCustom(seu, features = "H_TNF1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_INTERFERON_GAMMA_RESPONSE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_IFN")
+FeaturePlot_scCustom(seu, features = "H_IFN1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_INTERFERON_ALPHA_RESPONSE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_IFNA")
+FeaturePlot_scCustom(seu, features = "H_IFNA1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_HEDGEHOG_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_HEDGEHOG")
+FeaturePlot_scCustom(seu, features = "H_HEDGEHOG1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_TGF_BETA_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_TGFB")
+FeaturePlot_scCustom(seu, features = "H_TGFB1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_OXPHOS")
+FeaturePlot_scCustom(seu, features = "H_OXPHOS1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_WNT_BETA_CATENIN_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_WNT")
+FeaturePlot_scCustom(seu, features = "H_WNT1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_E2F_TARGETS",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_E2F")
+FeaturePlot_scCustom(seu, features = "H_E2F1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_G2M_CHECKPOINT",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_G2M")
+FeaturePlot_scCustom(seu, features = "H_G2M1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_GLYCOLYSIS",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_GLYCOLYSIS")
+FeaturePlot_scCustom(seu, features = "H_GLYCOLYSIS1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_FATTY_ACID_METABOLISM",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_FAT")
+FeaturePlot_scCustom(seu, features = "H_FAT1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_MITOTIC_SPINDLE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_MITO")
+FeaturePlot_scCustom(seu, features = "H_MITO1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_KRAS_SIGNALING_UP",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_KRAS_UP")
+FeaturePlot_scCustom(seu, features = "H_KRAS_UP1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t2g[m_t2g$gs_name == "HALLMARK_KRAS_SIGNALING_DN",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "H_KRAS_DOWN")
+FeaturePlot_scCustom(seu, features = "H_KRAS_DOWN1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+#----Other custom UMAP plots requested by Motoko ----#
+DefaultAssay(seu)<-"RNA"
+FeaturePlot_scCustom(seu, features = "Ciita", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+FeaturePlot_scCustom(seu, features = "H2-Aa", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+FeaturePlot_scCustom(seu, features = "H2-Ab1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+
+#----- Other gene sets requested by Motoko -----#
+#GOCC_MHC_CLASS_II_PROTEIN_COMPLEX – Mouse M5 – Gene Ontology / Cellular component - https://amigo.geneontology.org/amigo/term/GO:0042613
+#REACTOME_MHC_CLASS_II_ANTIGEN_PRESENTATION  #Inferred from class II presentation (Homo sapiens) - https://www.reactome.org/content/detail/R-MMU-2132295
+
+m_t2g_B <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME") %>% dplyr::select(gs_name, gene_symbol) 
+
+bac<-m_t2g_B[m_t2g_B$gs_name == "REACTOME_MHC_CLASS_II_ANTIGEN_PRESENTATION",]$gene_symbol 
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "CP_REACTOME_MHC_CLASS_II")
+FeaturePlot_scCustom(seu, features = "CP_REACTOME_MHC_CLASS_II1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+seu.genes56 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('5','6'))
+fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g_B,seu.genes56,"5","CP:REACTOME Set 5v6",0, height=6, width=6)
+fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g_B,seu.genes56,"6","CP:REACTOME Set 5v6",0, height=6, width=6)
+
+fgsea_sets_B<- m_t2g_B %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+fsgea_B_ranks <- plot_fsgea_bargraph(m_t2g_B,seu.genes56,"6","CP:REACTOME",0, height=6, width=6)
+plotEnrichment(fgsea_sets_B[["CP_REACTOME_MHC_CLASS_II"]],
+               fsgea_B_ranks, ticksSize = 0.5) + labs(title="CP_REACTOME_MHC_CLASS_II")
+my_comparisons <- list( c("4", "5"), c("5", "6"), c("4", "6"), c("3","4"), c("3","5"), c("3","6"))
+
+VlnPlot(seu, features = c("CP_REACTOME_MHC_CLASS_II1"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 0.8)
+
+
+
+m_t2g_C <- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:CC") %>% dplyr::select(gs_name, gene_symbol) 
+
+bac<-m_t2g_C[m_t2g_C$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX",]$gene_symbol 
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOCC_MHC_CLASSII")
+FeaturePlot_scCustom(seu, features = "GOCC_MHC_CLASSII1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+seu.genes56 <- wilcoxauc(seu,"seurat_clusters",groups_use=c('5','6'))
+
+fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g_C,seu.genes56,"5","GO:CC Set 5v6",0, height=6, width=6)
+fsgea_56_ranks <- plot_fsgea_bargraph(m_t2g_C,seu.genes56,"6","GO:CC Set 5v6",0, height=6, width=6)
+
+fgsea_sets_C<- m_t2g_C %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+fsgea_C_ranks <- plot_fsgea_bargraph(m_t2g_C,seu.genes56,"6","GO:CC",0, height=6, width=6)
+plotEnrichment(fgsea_sets_C[["GOCC_MHC_CLASS_II_PROTEIN_COMPLEX"]],
+               fsgea_C_ranks, ticksSize = 0.5) + labs(title="GOCC_MHC_CLASS_II_PROTEIN_COMPLEX")
+
+my_comparisons <- list( c("4", "5"), c("5", "6"), c("4", "6"), c("3","4"), c("3","5"), c("3","6"))
+VlnPlot(seu, features = c("GOCC_MHC_CLASSII1"), pt.size = 0)+ stat_summary(fun.y = median, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 4)
+
+
+### Comparison by groups ###
+my_comparisons <- list( c("Female_IFNGRneg", "Female_IFNGRpos"), 
+                        c("Male_IFNGRneg", "Male_IFNGRpos"), 
+                        c("Female_IFNGRneg", "Male_IFNGRneg"), 
+                        c("Female_IFNGRpos","Male_IFNGRpos"), 
+                        c("Female_IFNGRneg","Male_IFNGRpos"), 
+                        c("Female_IFNGRpos","Male_IFNGRneg"))
+
+VlnPlot(seu, features = c("GOCC_MHC_CLASSII1"), group.by="group", pt.size = 0)+ stat_summary(fun.y = mean, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 4)
+
+
+VlnPlot(seu, features = c("CP_REACTOME_MHC_CLASS_II1"), group.by="group", pt.size = 0)+ stat_summary(fun.y = mean, geom='point', size = 25, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 1)
+
+
+#------ Plot NES Differences  ------#
+pathwaysHlist <- temp3H$pathway
+pathwaysH_diff_2_3 <- NULL
+
+for(i in 1:length(pathwaysHlist))
+{
+  if((pathwaysHlist[i] %in% temp3H$pathway) & (pathwaysHlist[i] %in% temp2H$pathway))
+  {
+    pathwaysH_diff_2_3[i] <- temp3H$NES[temp3H$pathway==pathwaysHlist[i]] - temp2H$NES[temp2H$pathway==pathwaysHlist[i]]
+  }
+}
+
+diff<-pathwaysH_diff_2_3#[order(pathwaysH_diff_3_4, decreasing=TRUE)]
+list<-pathwaysHlist#[order(pathwaysH_diff_3_4, decreasing=TRUE)]
+
+
+df <- data.frame(list=list,NES_diff=diff)
+
+df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+dev.off()
+
+color=rep("red",length(list))
+color[df$NES_diff>0] <- "blue"
+ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()
+
+
+
+
+
+#---- GO:BP Gene Sets ----#
+m_t3g <- msigdbr(species = "Mus musculus", category = "C5", subcategory = "GO:BP") %>% dplyr::select(gs_name, gene_symbol) 
+
+
+fsgeaGOBP_2_ranks <- plot_fsgea_bargraph(m_t3g,seu.genes,"2","GO:BP Set",5, height=25, width=10)
+fsgeaGOBP_3_ranks <- plot_fsgea_bargraph(m_t3g,seu.genes,"3","GO:BP Set",5, height=25, width=10)
+fsgeaGOBP_4_ranks <- plot_fsgea_bargraph(m_t3g,seu.genes,"4","GO:BP Set",5, height=25, width=10)
+
+temp2GOBP<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - GO:BP Set - Group 2.csv"))
+temp3GOBP<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - GO:BP Set - Group 3.csv"))
+temp4GOBP<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - GO:BP Set - Group 4.csv"))
+
+#------ Plot NES Differences  ------#
+pathwaysGOBPlist <- temp4GOBP$pathway
+pathwaysGOBP_diff_3_4 <- NULL
+
+for(i in 1:length(pathwaysGOBPlist))
+{
+  if((pathwaysGOBPlist[i] %in% temp3GOBP$pathway) & (pathwaysGOBPlist[i] %in% temp4GOBP$pathway))
+  {
+    pathwaysGOBP_diff_3_4[i] <- temp4GOBP$NES[temp4GOBP$pathway==pathwaysGOBPlist[i]] - temp3GOBP$NES[temp3GOBP$pathway==pathwaysGOBPlist[i]]
+  }
+}
+diff<-pathwaysGOBP_diff_3_4#[order(pathwaysGOBP_diff_3_4, decreasing=TRUE)]
+list<-pathwaysGOBPlist#[order(pathwaysGOBP_diff_3_4, decreasing=TRUE)]
+
+diff2 <- diff[abs(diff)>2.5]
+list2 <- list[abs(diff)>2.5]
+
+df <- data.frame(list=list2,NES_diff=diff2)
+
+df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+
+color=rep("red",length(list2))
+color[df$NES_diff>0] <- "blue"
+
+pdf(file.path(FIG_DIR, "GSEA DIFF_GOBP 3_4.pdf"), height=20, width=20)
+ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()
+dev.off()
+
+
+
+## List 3 vs. 2 and 4
+pathwaysGOBPlist2 <- temp3GOBP$pathway
+pathwaysGOBP_diff_3_24 <- NULL
+
+for(i in 1:length(pathwaysGOBPlist2))
+{
+  if((pathwaysGOBPlist2[i] %in% temp3GOBP$pathway) & (pathwaysGOBPlist2[i] %in% temp4GOBP$pathway)
+     & (pathwaysGOBPlist2[i] %in% temp2GOBP$pathway))
+  {
+    pathwaysGOBP_diff_3_24[i] <- temp3GOBP$NES[temp3GOBP$pathway==pathwaysGOBPlist2[i]] - temp4GOBP$NES[temp4GOBP$pathway==pathwaysGOBPlist2[i]]- temp2GOBP$NES[temp2GOBP$pathway==pathwaysGOBPlist2[i]]
+  }
+}
+
+diff_2<-pathwaysGOBP_diff_3_24#[order(pathwaysGOBP_diff_3_4, decreasing=TRUE)]
+list_2<-pathwaysGOBPlist2#[order(pathwaysGOBP_diff_3_4, decreasing=TRUE)]
+
+diff_2
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_HUMORAL_IMMUNE_RESPONSE",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_HUMORAL")
+FeaturePlot_scCustom(seu, features = "GOBP_HUMORAL1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_PROTECTION_FROM_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_PROTECT_NK")
+FeaturePlot_scCustom(seu, features = "GOBP_PROTECT_NK1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION_OF_ENDOGENOUS_PEPTIDE_ANTIGEN_VIA_MHC_CLASS_I_VIA_ER_PATHWAY",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_PRESENT_ENDO_PEPTIDE_MHCI")
+FeaturePlot_scCustom(seu, features = "GOBP_PRESENT_ENDO_PEPTIDE_MHCI1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_REGULATION_OF_LEUKOCYTE_MEDIATED_CYTOTOXICITY",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_LEUKO_TOXICITY")
+FeaturePlot_scCustom(seu, features = "GOBP_LEUKO_TOXICITY1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_CELL_CELL_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_CELL_CELL")
+FeaturePlot_scCustom(seu, features = "GOBP_CELL_CELL1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_NATURAL_KILLER_CELL_CYTOKINE_PRODUCTION",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_NK_CYTOKINE")
+FeaturePlot_scCustom(seu, features = "GOBP_NK_CYTOKINE1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_NEGATIVE_REGULATION_OF_NATURAL_KILLER_CELL_MEDIATED_IMMUNITY",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_NEGATIVE_REG_NK_IMMUNITY")
+FeaturePlot_scCustom(seu, features = "GOBP_NEGATIVE_REG_NK_IMMUNITY1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_POSITIVE_REGULATION_OF_T_CELL_MEDIATED_CYTOTOXICITY",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_POS_REG_T_CYTOTOX")
+FeaturePlot_scCustom(seu, features = "GOBP_POS_REG_T_CYTOTOX1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_NEGATIVE_REGULATION_OF_LIPID_LOCALIZATION",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_NEG_REG_CELL_KILLING")
+FeaturePlot_scCustom(seu, features = "GOBP_NEG_REG_CELL_KILLING1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+
+
+#---- IMMUNESIGDB Gene Sets ----#
+m_t4g <- msigdbr(species = "Mus musculus", category = "C7", subcategory = "IMMUNESIGDB") %>% dplyr::select(gs_name, gene_symbol) 
+fgsea4_sets<- m_t4g %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+
+
+fsgeaIMMUNE_2_ranks <- plot_fsgea_bargraph(m_t4g,seu.genes,"2","IMMUNESIGDB Set",5, height=100, width=10)
+fsgeaIMMUNE_3_ranks <- plot_fsgea_bargraph(m_t4g,seu.genes,"3","IMMUNESIGDB Set",5, height=100, width=10)
+fsgeaIMMUNE_4_ranks <- plot_fsgea_bargraph(m_t4g,seu.genes,"4","IMMUNESIGDB Set",5, height=100, width=10)
+
+temp2IMMUNE<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - IMMUNESIGDB Set - Group 2.csv"))
+temp3IMMUNE<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - IMMUNESIGDB Set - Group 3.csv"))
+temp4IMMUNE<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - IMMUNESIGDB Set - Group 4.csv"))
+
+
+#------ Plot NES Differences  ------#
+pathwaysIMMUNElist <- temp4IMMUNE$pathway
+pathwaysIMMUNE_diff_3_4 <- NULL
+
+for(i in 1:length(pathwaysIMMUNElist))
+{
+  if((pathwaysIMMUNElist[i] %in% temp3IMMUNE$pathway) & (pathwaysIMMUNElist[i] %in% temp4IMMUNE$pathway))
+  {
+    pathwaysIMMUNE_diff_3_4[i] <- temp4IMMUNE$NES[temp4IMMUNE$pathway==pathwaysIMMUNElist[i]] - temp3IMMUNE$NES[temp3IMMUNE$pathway==pathwaysIMMUNElist[i]]
+  }
+}
+
+diff<-pathwaysIMMUNE_diff_3_4#[order(pathwaysIMMUNE_diff_3_4, decreasing=TRUE)]
+list<-pathwaysIMMUNElist#[order(pathwaysIMMUNE_diff_3_4, decreasing=TRUE)]
+
+diff2 <- diff[abs(diff)>2]
+list2 <- list[abs(diff)>2]
+
+df <- data.frame(list=list2,NES_diff=diff2)
+
+df$list <- factor(df$list, levels = df$list[order(df$NES_diff, decreasing = FALSE)])
+
+color=rep("red",length(list2))
+color[df$NES_diff>0] <- "blue"
+
+pdf(file.path(FIG_DIR, "GSEA DIFF_IMMUNE 3_4.pdf"), height=15, width=20)
+ggplot(data=df, aes(x=list,y=NES_diff))+geom_bar(stat="identity",fill=color)+coord_flip()
+dev.off()
+
+
+
+
+order(pathwaysIMMUNE_diff_3_4, decreasing=TRUE)
+pathwaysIMMUNE_diff_3_4[4488]
+pathwaysIMMUNE_diff_3_4[4813]
+pathwaysIMMUNElist[4488 ]
+
+bac<-m_t4g[m_t4g$gs_name == "GSE43863_NAIVE_VS_MEMORY_TH1_CD4_TCELL_D150_LCMV_UP",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_LEUKO_TOXICITY")
+FeaturePlot_scCustom(seu, features = "GOBP_LEUKO_TOXICITY1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+
+
+bac<-m_t3g[m_t3g$gs_name == "GOBP_CELL_CELL_SIGNALING",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "GOBP_CELL_CELL")
+FeaturePlot_scCustom(seu, features = "GOBP_CELL_CELL1", label = F, label.size = 2, pt.size = 2, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)&NoAxes()
+
+
+
+
+
+plotEnrichment(fgsea_sets[["GSE37605_FOXP3_FUSION_GFP_VS_IRES_GFP_TREG_C57BL6_UP"]],
+               fsgeaIMMUNE_4_ranks, ticksSize = 0.5) + labs(title="GSE37605_FOXP3_FUSION_GFP_VS_IRES_GFP_TREG_C57BL6_UP")
+plotEnrichment(fgsea_sets[["GSE37605_FOXP3_FUSION_GFP_VS_IRES_GFP_TREG_C57BL6_UP"]],
+               fsgea_3_ranks, ticksSize = 0.5) + labs(title="GSE37605_FOXP3_FUSION_GFP_VS_IRES_GFP_TREG_C57BL6_UP")
+plotEnrichment(fgsea_sets[["GSE22886_NEUTROPHIL_VS_DC_DN"]],
+               fsgea_2_ranks, ticksSize = 0.5) + labs(title="GSE22886_NEUTROPHIL_VS_DC_DN")
+
+
+
+temp2<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - IMMUNESIGDB Set - Group 2.csv"))
+temp3<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - IMMUNESIGDB Set - Group 3.csv"))
+temp4<-read.csv(paste0(FIG_DIR,"/[Suppl] GSEA - IMMUNESIGDB Set - Group 4.csv"))
+
+pathways4list <- temp4$pathway
+pathways4_diff_3_4 <- NULL
+pathways4list[1] %in% temp2$pathway
+pathways4list[1] %in% temp4$pathway
+
+for(i in 1:length(pathways4list))
+{
+  if((pathways4list[i] %in% temp3$pathway) & (pathways4list[i] %in% temp4$pathway))
+  {
+    pathways4_diff_3_4[i] <- temp3$NES[temp3$pathway==pathways4list[i]] - temp4$NES[temp4$pathway==pathways4list[i]]
+  }
+}
+
+
+order(pathways_diff_3_4, decreasing=TRUE)
+pathways_diff_3_4[4488]
+pathways_diff_3_4[4813]
+pathwayslist[4813]
+
+
+
+fsgea_4_ranks
+
+
+
+```
+
+
+
+
+
+
+
+
+### Appendix
+```{r Appendix,echo=FALSE}
+sessionInfo()
+getwd()
+```

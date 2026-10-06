@@ -1,0 +1,231 @@
+#!/usr/bin/env Rscript
+## ===========================================================================
+## Exp160 - Figure S7
+##   cartridge2 (24 h post-TBI WT B6)  +  cartridge3 (24 h post-TBI MHC-II KO)
+##
+## Source: Exp160/rmd/Exp160_Final.Rmd, chunks
+##   "add Cart 3 - re-embed with Cart 2 only",
+##   "add Cart 3 with cart 2 re-embed - custom gene set and other ADT/RNA analysis",
+##   "add Cart 3 with card 2 re-embed - GSEA",
+##   "add Cart 3 with card 2 re-embed - Propellar and DEGs"
+##
+## QC threshold: percent.mt < 40, and resolution 0.1 here against 0.15
+## in the Fig 4 / S6 analysis.
+##
+## NOTE: the Rmd read "< 25" for the Fig 4 / S6 analysis until it was
+## corrected on 2026-10-06. That value was STALE - the published Fig 4
+## object holds 8,032 cells with a percent.mt maximum of 39.994, and 25
+## yields 6,412. BOTH analyses used 40, and the Rmd now says so. See
+## 01_original_code/KNOWN_ISSUES.md. The resolutions (0.1 / 0.15)
+## genuinely do differ and are correct as stated.
+##
+## One forced deviation, listed in the methods page:
+##   * the volcano in S7E. The Rmd builds it as
+##       volcano_0_2 <- data.frame(cbind(rownames(test0_2),
+##                                       test0_2$p_val_adj < 0.05,
+##                                       test0_2$avg_log2FC,
+##                                       test0_1$p_val))      # <- test0_1
+##     test0_1 is never assigned anywhere in the Exp160 Rmd corpus, so the line
+##     raises "object 'test0_1' not found" on a clean run. Every other field of
+##     that data.frame comes from test0_2 (cluster 0 vs cluster 2), so the
+##     p-value column is taken from test0_2$p_val here.
+##
+## Usage: Rscript 02_figS7.R [--source deposit|original|rebuilt] [--which RSEC|DBEC]
+## ===========================================================================
+
+suppressPackageStartupMessages({
+  library(Seurat); library(ggplot2); library(dplyr); library(patchwork)
+  library(scCustomize); library(ggpubr); library(Matrix); library(ggrepel)
+})
+
+## --- path resolution (Zenodo package) ---------------------------------------
+## These lines replace the hardcoded lab paths of the working copy. Every other
+## change to this file is also path-only; no analysis line differs from the
+## script that produced the published figures. The complete diff against the
+## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
+## than taking this comment's word for it.
+local({
+  a <- commandArgs(FALSE)
+  f <- sub("^--file=", "", a[grep("^--file=", a)])
+  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
+  repeat {
+    if (file.exists(file.path(d, ".ady3001_root"))) break
+    p <- dirname(d)
+    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
+    d <- p
+  }
+  assign("PKG", d, envir = .GlobalEnv)
+})
+source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+
+args <- commandArgs(trailingOnly = TRUE)
+getopt <- function(f, d) { i <- match(f, args); if (is.na(i)) d else args[i + 1L] }
+SOURCE <- getopt("--source", "deposit"); WHICH <- getopt("--which", "RSEC")
+
+DATA <- switch(SOURCE,
+  original = file.path(ROOT, "Exp160", "data"),
+  rebuilt  = file.path(REB,  "Exp160", "01_bd_pipeline"),
+  ## "deposit" = the CLEAN ROOM: nothing but the files actually on GEO.
+  ## Set $ADY3001_DATA to point at your unpacked GEO download.
+  deposit  = file.path(Sys.getenv("ADY3001_DATA", file.path(PKG, "data")), "Exp160", "data"),
+  stop("--source must be original, rebuilt or deposit"))
+ady_check_data(DATA, SOURCE)
+
+OUT <- file.path(OUT_ROOT, "Exp160", paste0("outS7_", SOURCE, "_", WHICH))
+FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+## Create and VERIFY. dir.create(showWarnings = FALSE) hides a failure, and a
+## failure here is silent until the first pdf() call dies hundreds of lines later.
+for (d in c(FIG, CDS)) {
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(d)) stop("could not create output directory: ", d)
+}
+
+theme_set(bd_theme()); rna_cols <- bd_rna_cols(); clus_cols36 <- bd_clus_cols36
+SEED <- 1234
+pdfout <- function(n, w = 6, h = 6) pdf(file.path(FIG, paste0(n, ".pdf")), width = w, height = h)
+
+cat("== Exp160 Fig S7 ==\n   source:", SOURCE, "\n")
+
+dirs <- c(cart2 = file.path(DATA, if (SOURCE == "original") "cart2" else "cartridge2"),
+          cart3 = file.path(DATA, if (SOURCE == "original") "cart3" else "cartridge3"))
+loaded <- bd_load(dirs, which = WHICH, n_pabo = 4)
+seu <- bd_seurat(loaded)
+cat("   cells before filtering:", ncol(seu), "\n")
+
+seu <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40)
+cat("   cells after filtering :", ncol(seu), "   (Rmd recorded 7,478 from 23,841)\n")
+seu <- bd_process(seu, dims = 1:40, resolution = 0.1, seed = SEED)
+seu <- bd_process_adt(seu)
+saveRDS(seu, file.path(CDS, "cart2_cart3_processed.RDS"))
+
+## --- S7B: embedding by group, by cluster, and cluster proportions ------------
+pdfout("[FigS7B] Cart2 v Cart3 by cart")
+print(DimPlot(seu, group.by = "cart")); dev.off()
+pdfout("[FigS7B] Cart2 v Cart3 clusters, res=0.1, dim=40")
+print(DimPlot(seu, cols = clus_cols36)); dev.off()
+
+## proportions bar - propeller / speckle, Phipson 2022 PMID 36005887
+suppressPackageStartupMessages({ library(speckle); library(limma) })
+pdf(file.path(FIG, "[FigS7B] Propeller_plots.pdf"), width = 3, height = 8)
+print(plotCellTypeProps(clusters = seu$seurat_clusters, sample = seu$cart) +
+      scale_fill_manual(values = clus_cols36[seq_len(nlevels(seu$seurat_clusters))]) +
+      theme_classic())
+dev.off()
+
+## --- S7C: published cell-subset signatures ----------------------------------
+custom_gene_sets <- list(
+  Stem_Cell                = c("Lgr5","Olfm4","Slc12a2","Ascl2","Axin2","Gkn3"),
+  Transit_Amplifying_Cells = c("Olfm4","Scl12a2"),
+  Goblet                   = c("Muc2","Agr2","Clca3","Tff3","Ang4","Defa31"),
+  Tuft                     = c("Dclk1","Trpm5","Gnat3","CD24a","Krt8","Krt18","Gfi1b",
+                               "Il25","Ptgs1","Alox5","Ptprc","Chat","Rac2"),
+  Paneth                   = c("Mptx1","Ang4","Defa31","Defa17","Defa24","Defa22","Lyz1","Itln1"),
+  Enteroendocrine          = c("Reg4","Chga","Chgb","Tph1","Tac1","Neuro3"),
+  Enterocytes              = c("Alpi","Apoa1","Apoa4","Fabp1"),
+  Partial_IEC              = c("Top2a","Apol10a","Car4","Ube2c"))
+
+DefaultAssay(seu) <- "RNA"
+for (nm in names(custom_gene_sets)) {
+  set.seed(SEED)
+  seu <- AddModuleScore(seu, features = list(custom_gene_sets[[nm]]), name = nm)
+  pdfout(paste0("[FigS7C] Custom ", nm))
+  print(FeaturePlot_scCustom(seu, features = paste0(nm, "1"), label = FALSE,
+                             pt.size = 1, max.cutoff = "q99") +
+        scale_color_gradientn(colors = rna_cols))
+  dev.off()
+}
+
+## --- S7D: protein and gene-set panels, with per-cluster Wilcoxon -------------
+suppressPackageStartupMessages({ library(msigdbr) })
+m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+lv <- levels(seu$seurat_clusters)
+my_comparisons <- lapply(setdiff(lv, "0"), function(x) c("0", x))
+cat("   clusters:", paste(lv, collapse = ","), "\n")
+
+gs_panels <- list(
+  list(set = "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", name = "MHC_CLASS_II_PROTEIN_COMPLEX", ymax = 7),
+  list(set = "GOCC_MHC_CLASS_I_PROTEIN_COMPLEX",  name = "MHC_CLASS_I_PROTEIN_COMPLEX",  ymax = 3),
+  list(set = "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION",
+       name = "ANTIGEN_PROCESSING_AND_PRESENTATION", ymax = 1.2))
+
+for (p in gs_panels) {
+  genes <- m_t2g[m_t2g$gs_name == p$set, ]$gene_symbol
+  set.seed(SEED)
+  seu <- AddModuleScore(seu, features = list(genes), name = p$name)
+  feat <- paste0(p$name, "1")
+  pdfout(paste0("[FigS7D] ", p$set))
+  print(FeaturePlot_scCustom(seu, features = feat, label = FALSE, pt.size = 1,
+                             max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols))
+  dev.off()
+  pdfout(paste0("[FigS7D] ", p$set, " violin"))
+  print(VlnPlot(seu, features = feat, group.by = "seurat_clusters",
+                col = clus_cols36, pt.size = 0) +
+        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+        stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") +
+        ylim(0, p$ymax))
+  dev.off()
+}
+
+DefaultAssay(seu) <- "ADT"
+for (ab in c("I-A-I-E", "H-2Kb")) {
+  pdfout(paste0("[FigS7D] ", ab))
+  print(FeaturePlot_scCustom(seu, features = ab, max.cutoff = "q99")); dev.off()
+  pdfout(paste0("[FigS7D] ", ab, " (violin)"))
+  print(VlnPlot(seu, features = ab, group.by = "seurat_clusters",
+                col = clus_cols36, pt.size = 0) +
+        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+        stat_compare_means(comparisons = my_comparisons, method = "wilcox.test"))
+  dev.off()
+}
+pdfout("[FigS7D] Markers ADT dotplot", 4, 6)
+print(DotPlot(seu, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()); dev.off()
+DefaultAssay(seu) <- "RNA"
+pdfout("[FigS7D] Markers GSEA dotplot", 4, 6)
+print(DotPlot(seu, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1",
+                                "MHC_CLASS_I_PROTEIN_COMPLEX1",
+                                "ANTIGEN_PROCESSING_AND_PRESENTATION1")) +
+      scale_x_discrete(labels = function(x) substr(x, 1, 15)) + RotatedAxis())
+dev.off()
+
+## --- S7E: DEGs, cluster 0 (enterocyte WT) vs cluster 2 (enterocyte KO) ------
+DefaultAssay(seu) <- "RNA"
+stopifnot(all(c("0","2") %in% lv))
+test0_2 <- FindMarkers(seu, ident.1 = "0", ident.2 = "2")
+write.csv(test0_2, file.path(OUT, "DEGs_cluster0_vs_cluster2.csv"))
+
+de <- data.frame(delabel        = rownames(test0_2),
+                 diffexpressed  = test0_2$p_val_adj < 0.05,
+                 log2FoldChange = test0_2$avg_log2FC,
+                 pvalue         = test0_2$p_val)      # see header note re test0_1
+de$pvalue[de$pvalue == 0] <- .Machine$double.xmin
+neg_col <- "#00BFC4"; pos_col <- "#F8766D"
+de_df <- de %>% filter(diffexpressed) %>%
+  mutate(color = ifelse(log2FoldChange < 0, neg_col,
+                 ifelse(log2FoldChange > 0, pos_col, "grey70")))
+cat("   DE genes at padj<0.05:", nrow(de_df), "\n")
+
+for (n in c(30, 150)) {
+  top <- de_df %>% arrange(pvalue) %>% slice_head(n = n)
+  pdfout(paste0("[FigS7E] DEG cluster 0v2 top ", n))
+  print(ggplot(de_df, aes(x = log2FoldChange, y = -log10(pvalue), color = color)) +
+          geom_point(size = 1.8) +
+          ggrepel::geom_text_repel(data = top, aes(label = delabel), max.overlaps = Inf,
+                                   box.padding = 0.4, point.padding = 0.2,
+                                   segment.alpha = 0.5, seed = 123) +
+          scale_color_identity(guide = "none") + theme_bw() +
+          labs(x = "log2 fold-change", y = "-log10(p-value)"))
+  dev.off()
+}
+
+pdf(file.path(FIG, "[FigS7E] top DEGs featureplots.pdf"), width = 12, height = 16)
+print(FeaturePlot_scCustom(seu, features = c("Dmbt1","Ubd","Saa1","Reg3b","Reg3g","Rnf186"),
+                           max.cutoff = "q99", colors_use = rna_cols, pt.size = 0.2))
+dev.off()
+
+saveRDS(seu, file.path(CDS, "cart2_cart3_scored.RDS"))
+write.csv(as.data.frame(table(cluster = seu$seurat_clusters, cartridge = seu$cart)),
+          file.path(OUT, "cluster_by_cartridge.csv"), row.names = FALSE)
+bd_session(file.path(OUT, "sessionInfo.txt"))
+cat("== done ->", OUT, "\n")

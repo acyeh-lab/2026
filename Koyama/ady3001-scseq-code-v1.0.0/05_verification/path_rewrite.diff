@@ -1,0 +1,401 @@
+# Complete diff of every packaged script against the lab working
+# copy that produced the published figures.
+#
+# Read this to check the claim that only path resolution changed.
+# Left  (---) = the lab working copy under Rebuild/
+# Right (+++) = this package
+# Generated 2026-09-21 by Rebuild/zenodo/build_zenodo_package.py
+
+
+==========================================================================
+=== 02_figure_scripts/Exp160/01_fig4_figS6.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp160/02_r_rebuild/01_fig4_figS6.R	2026-10-06 08:32:56.656633000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/Exp160/01_fig4_figS6.R	2026-10-06 08:37:49.138108000 -0700
+@@ -22,7 +22,7 @@
+ ##     load_bd.R).
+ ##
+ ## Usage:
+-##   Rscript 01_fig4_figS6.R [--source original|rebuilt] [--which RSEC|DBEC]
++##   Rscript 01_fig4_figS6.R [--source deposit|original|rebuilt] [--which RSEC|DBEC]
+ ## ===========================================================================
+ 
+ suppressPackageStartupMessages({
+@@ -30,26 +30,43 @@
+   library(scCustomize); library(ggpubr); library(Matrix)
+ })
+ 
+-ROOT   <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024"
+-REB    <- file.path(ROOT, "Rebuild")
+-source(file.path(REB, "common/scripts/R/load_bd.R"))
++## --- path resolution (Zenodo package) ---------------------------------------
++## These lines replace the hardcoded lab paths of the working copy. Every other
++## change to this file is also path-only; no analysis line differs from the
++## script that produced the published figures. The complete diff against the
++## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
++## than taking this comment's word for it.
++local({
++  a <- commandArgs(FALSE)
++  f <- sub("^--file=", "", a[grep("^--file=", a)])
++  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
++  repeat {
++    if (file.exists(file.path(d, ".ady3001_root"))) break
++    p <- dirname(d)
++    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
++    d <- p
++  }
++  assign("PKG", d, envir = .GlobalEnv)
++})
++source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+ 
+ args   <- commandArgs(trailingOnly = TRUE)
+ getopt <- function(flag, default) {
+   i <- match(flag, args); if (is.na(i)) default else args[i + 1L]
+ }
+-SOURCE <- getopt("--source", "original")   # which RSEC matrices to start from
++SOURCE <- getopt("--source", "deposit")   # which RSEC matrices to start from
+ WHICH  <- getopt("--which",  "RSEC")
+ 
+ DATA <- switch(SOURCE,
+   original = file.path(ROOT, "Exp160", "data"),
+   rebuilt  = file.path(REB,  "Exp160", "01_bd_pipeline"),
+   ## "deposit" = the CLEAN ROOM: nothing but the files actually on GEO.
+-  ## Set DEPOSIT_ROOT to point somewhere else (e.g. a real GEO download).
+-  deposit  = file.path(Sys.getenv("DEPOSIT_ROOT", "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked"), "Exp160", "data"),
++  ## Set $ADY3001_DATA to point at your unpacked GEO download.
++  deposit  = file.path(Sys.getenv("ADY3001_DATA", file.path(PKG, "data")), "Exp160", "data"),
+   stop("--source must be original, rebuilt or deposit"))
++ady_check_data(DATA, SOURCE)
+ 
+-OUT <- file.path(REB, "Exp160", "02_r_rebuild", paste0("out_", SOURCE, "_", WHICH))
++OUT <- file.path(OUT_ROOT, "Exp160", paste0("out_", SOURCE, "_", WHICH))
+ FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+ ## Create and VERIFY. dir.create(showWarnings = FALSE) hides a failure, and a
+ ## failure here is silent until the first pdf() call dies hundreds of lines later.
+
+==========================================================================
+=== 02_figure_scripts/Exp160/02_figS7.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp160/02_r_rebuild/02_figS7.R	2026-09-18 09:05:53.315155000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/Exp160/02_figS7.R	2026-10-06 08:37:49.183721000 -0700
+@@ -9,9 +9,15 @@
+ ##   "add Cart 3 with card 2 re-embed - GSEA",
+ ##   "add Cart 3 with card 2 re-embed - Propellar and DEGs"
+ ##
+-## Note the QC threshold differs from the Fig 4 / S6 analysis: percent.mt < 40
+-## here, percent.mt < 25 there, and resolution 0.1 here against 0.15 there.
+-## Both are as written in the Rmd; they are not harmonised.
++## QC threshold: percent.mt < 40, and resolution 0.1 here against 0.15
++## in the Fig 4 / S6 analysis.
++##
++## NOTE: the Rmd read "< 25" for the Fig 4 / S6 analysis until it was
++## corrected on 2026-10-06. That value was STALE - the published Fig 4
++## object holds 8,032 cells with a percent.mt maximum of 39.994, and 25
++## yields 6,412. BOTH analyses used 40, and the Rmd now says so. See
++## 01_original_code/KNOWN_ISSUES.md. The resolutions (0.1 / 0.15)
++## genuinely do differ and are correct as stated.
+ ##
+ ## One forced deviation, listed in the methods page:
+ ##   * the volcano in S7E. The Rmd builds it as
+@@ -24,7 +30,7 @@
+ ##     that data.frame comes from test0_2 (cluster 0 vs cluster 2), so the
+ ##     p-value column is taken from test0_2$p_val here.
+ ##
+-## Usage: Rscript 02_figS7.R [--source original|rebuilt] [--which RSEC|DBEC]
++## Usage: Rscript 02_figS7.R [--source deposit|original|rebuilt] [--which RSEC|DBEC]
+ ## ===========================================================================
+ 
+ suppressPackageStartupMessages({
+@@ -32,23 +38,40 @@
+   library(scCustomize); library(ggpubr); library(Matrix); library(ggrepel)
+ })
+ 
+-ROOT <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024"
+-REB  <- file.path(ROOT, "Rebuild")
+-source(file.path(REB, "common/scripts/R/load_bd.R"))
++## --- path resolution (Zenodo package) ---------------------------------------
++## These lines replace the hardcoded lab paths of the working copy. Every other
++## change to this file is also path-only; no analysis line differs from the
++## script that produced the published figures. The complete diff against the
++## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
++## than taking this comment's word for it.
++local({
++  a <- commandArgs(FALSE)
++  f <- sub("^--file=", "", a[grep("^--file=", a)])
++  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
++  repeat {
++    if (file.exists(file.path(d, ".ady3001_root"))) break
++    p <- dirname(d)
++    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
++    d <- p
++  }
++  assign("PKG", d, envir = .GlobalEnv)
++})
++source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+ 
+ args <- commandArgs(trailingOnly = TRUE)
+ getopt <- function(f, d) { i <- match(f, args); if (is.na(i)) d else args[i + 1L] }
+-SOURCE <- getopt("--source", "original"); WHICH <- getopt("--which", "RSEC")
++SOURCE <- getopt("--source", "deposit"); WHICH <- getopt("--which", "RSEC")
+ 
+ DATA <- switch(SOURCE,
+   original = file.path(ROOT, "Exp160", "data"),
+   rebuilt  = file.path(REB,  "Exp160", "01_bd_pipeline"),
+   ## "deposit" = the CLEAN ROOM: nothing but the files actually on GEO.
+-  ## Set DEPOSIT_ROOT to point somewhere else (e.g. a real GEO download).
+-  deposit  = file.path(Sys.getenv("DEPOSIT_ROOT", "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked"), "Exp160", "data"),
++  ## Set $ADY3001_DATA to point at your unpacked GEO download.
++  deposit  = file.path(Sys.getenv("ADY3001_DATA", file.path(PKG, "data")), "Exp160", "data"),
+   stop("--source must be original, rebuilt or deposit"))
++ady_check_data(DATA, SOURCE)
+ 
+-OUT <- file.path(REB, "Exp160", "02_r_rebuild", paste0("outS7_", SOURCE, "_", WHICH))
++OUT <- file.path(OUT_ROOT, "Exp160", paste0("outS7_", SOURCE, "_", WHICH))
+ FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+ ## Create and VERIFY. dir.create(showWarnings = FALSE) hides a failure, and a
+ ## failure here is silent until the first pdf() call dies hundreds of lines later.
+
+==========================================================================
+=== 02_figure_scripts/Exp649/01_figS10_qc.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp649/02_r_rebuild/01_figS10_qc.R	2026-09-18 09:05:53.365215000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/Exp649/01_figS10_qc.R	2026-10-06 08:37:49.153544000 -0700
+@@ -22,7 +22,7 @@
+ ## the GEO sample table is written. Nothing downstream can detect if it is
+ ## wrong - the clusters would simply carry the wrong labels.
+ ##
+-## Usage: Rscript 01_figS10_qc.R [--source original|rebuilt] [--which RSEC|DBEC]
++## Usage: Rscript 01_figS10_qc.R [--source deposit|original|rebuilt] [--which RSEC|DBEC]
+ ## ===========================================================================
+ 
+ suppressPackageStartupMessages({
+@@ -30,23 +30,40 @@
+   library(ggpubr); library(Matrix)
+ })
+ 
+-ROOT <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024"
+-REB  <- file.path(ROOT, "Rebuild")
+-source(file.path(REB, "common/scripts/R/load_bd.R"))
++## --- path resolution (Zenodo package) ---------------------------------------
++## These lines replace the hardcoded lab paths of the working copy. Every other
++## change to this file is also path-only; no analysis line differs from the
++## script that produced the published figures. The complete diff against the
++## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
++## than taking this comment's word for it.
++local({
++  a <- commandArgs(FALSE)
++  f <- sub("^--file=", "", a[grep("^--file=", a)])
++  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
++  repeat {
++    if (file.exists(file.path(d, ".ady3001_root"))) break
++    p <- dirname(d)
++    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
++    d <- p
++  }
++  assign("PKG", d, envir = .GlobalEnv)
++})
++source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+ 
+ args <- commandArgs(trailingOnly = TRUE)
+ getopt <- function(f, d) { i <- match(f, args); if (is.na(i)) d else args[i + 1L] }
+-SOURCE <- getopt("--source", "original"); WHICH <- getopt("--which", "RSEC")
++SOURCE <- getopt("--source", "deposit"); WHICH <- getopt("--which", "RSEC")
+ 
+ DATA <- switch(SOURCE,
+   original = file.path(ROOT, "Exp649", "data"),
+   rebuilt  = file.path(REB,  "Exp649", "01_bd_pipeline"),
+   ## "deposit" = the CLEAN ROOM: nothing but the files actually on GEO.
+-  ## Set DEPOSIT_ROOT to point somewhere else (e.g. a real GEO download).
+-  deposit  = file.path(Sys.getenv("DEPOSIT_ROOT", "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked"), "Exp649", "data"),
++  ## Set $ADY3001_DATA to point at your unpacked GEO download.
++  deposit  = file.path(Sys.getenv("ADY3001_DATA", file.path(PKG, "data")), "Exp649", "data"),
+   stop("--source must be original, rebuilt or deposit"))
++ady_check_data(DATA, SOURCE)
+ 
+-OUT <- file.path(REB, "Exp649", "02_r_rebuild", paste0("outS10_", SOURCE, "_", WHICH))
++OUT <- file.path(OUT_ROOT, "Exp649", paste0("outS10_", SOURCE, "_", WHICH))
+ FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+ ## Create and VERIFY. dir.create(showWarnings = FALSE) hides a failure, and a
+ ## failure here is silent until the first pdf() call dies hundreds of lines later.
+
+==========================================================================
+=== 02_figure_scripts/Exp649/02_fig7_figS11.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp649/02_r_rebuild/02_fig7_figS11.R	2026-09-15 09:39:32.158891000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/Exp649/02_fig7_figS11.R	2026-10-06 08:37:49.166568000 -0700
+@@ -19,7 +19,7 @@
+ ## (all twelve sizes identical), so the two agree; but if a future run renumbers,
+ ## this prints the disagreement instead of silently subsetting the wrong cells.
+ ##
+-## Usage: Rscript 02_fig7_figS11.R [--source original|rebuilt] [--which RSEC|DBEC]
++## Usage: Rscript 02_fig7_figS11.R [--source deposit|original|rebuilt] [--which RSEC|DBEC]
+ ## ===========================================================================
+ 
+ suppressPackageStartupMessages({
+@@ -28,17 +28,33 @@
+   library(presto); library(fgsea); library(msigdbr)
+ })
+ 
+-ROOT <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024"
+-REB  <- file.path(ROOT, "Rebuild")
+-source(file.path(REB, "common/scripts/R/load_bd.R"))
++## --- path resolution (Zenodo package) ---------------------------------------
++## These lines replace the hardcoded lab paths of the working copy. Every other
++## change to this file is also path-only; no analysis line differs from the
++## script that produced the published figures. The complete diff against the
++## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
++## than taking this comment's word for it.
++local({
++  a <- commandArgs(FALSE)
++  f <- sub("^--file=", "", a[grep("^--file=", a)])
++  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
++  repeat {
++    if (file.exists(file.path(d, ".ady3001_root"))) break
++    p <- dirname(d)
++    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
++    d <- p
++  }
++  assign("PKG", d, envir = .GlobalEnv)
++})
++source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+ 
+ args <- commandArgs(trailingOnly = TRUE)
+ getopt <- function(f, d) { i <- match(f, args); if (is.na(i)) d else args[i + 1L] }
+-SOURCE <- getopt("--source", "original"); WHICH <- getopt("--which", "RSEC")
++SOURCE <- getopt("--source", "deposit"); WHICH <- getopt("--which", "RSEC")
+ 
+-IN  <- file.path(REB, "Exp649", "02_r_rebuild",
++IN  <- file.path(OUT_ROOT, "Exp649",
+                  paste0("outS10_", SOURCE, "_", WHICH), "cds", "all_cells_processed.RDS")
+-OUT <- file.path(REB, "Exp649", "02_r_rebuild", paste0("outFig7_", SOURCE, "_", WHICH))
++OUT <- file.path(OUT_ROOT, "Exp649", paste0("outFig7_", SOURCE, "_", WHICH))
+ FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+ ## Create and VERIFY. dir.create(showWarnings = FALSE) hides a failure, and a
+ ## failure here is silent until the first pdf() call dies hundreds of lines later.
+
+==========================================================================
+=== 02_figure_scripts/Exp80/02_figS3_from_deposit.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp80/02_r_rebuild/02_figS3_from_deposit.R	2026-09-18 09:25:28.822889000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/Exp80/02_figS3_from_deposit.R	2026-10-06 08:37:49.176540000 -0700
+@@ -20,16 +20,34 @@
+ ##
+ ## Usage: Rscript 02_figS3_from_deposit.R
+ ## ===========================================================================
++## --- path resolution (Zenodo package) ---------------------------------------
++## These lines replace the hardcoded lab paths of the working copy. Every other
++## change to this file is also path-only; no analysis line differs from the
++## script that produced the published figures. The complete diff against the
++## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
++## than taking this comment's word for it.
++local({
++  a <- commandArgs(FALSE)
++  f <- sub("^--file=", "", a[grep("^--file=", a)])
++  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
++  repeat {
++    if (file.exists(file.path(d, ".ady3001_root"))) break
++    p <- dirname(d)
++    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
++    d <- p
++  }
++  assign("PKG", d, envir = .GlobalEnv)
++})
++source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
++
+ suppressPackageStartupMessages({
+   library(Seurat); library(ggplot2); library(dplyr); library(Matrix)
+   library(scCustomize); library(data.table)
+ })
+ 
+-CR   <- Sys.getenv("DEPOSIT_ROOT",
+-  "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked")
++CR   <- Sys.getenv("ADY3001_DATA", file.path(PKG, "data"))
+ DATA <- file.path(CR, "Exp80", "data")
+-REB  <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild"
+-OUT  <- file.path(REB, "Exp80", "02_r_rebuild", "out_figS3_deposit")
++OUT  <- file.path(OUT_ROOT, "Exp80", "out_figS3_deposit")
+ FIG  <- file.path(OUT, "figs")
+ for (d in c(OUT, FIG)) {
+   dir.create(d, recursive = TRUE, showWarnings = FALSE)
+@@ -148,9 +166,15 @@
+ 
+ ## ---- compare against the full eight-tag run ---------------------------------
+ cat("---- fig. S3B: deposit-only vs the full eight-tag run ----\n")
+-ref_f <- file.path(REB, "Exp80", "02_r_rebuild", "out_figS3", "figS3B_dotplot_values.csv")
++ref_f <- Sys.getenv("ADY3001_FIGS3_REF",
++                    file.path(OUT_ROOT, "Exp80", "out_figS3",
++                              "figS3B_dotplot_values.csv"))
+ if (!file.exists(ref_f)) {
+   cat("   reference not found:", ref_f, "\n")
++  cat("   This comparison needs the EIGHT-tag run, which uses data that\n")
++  cat("   is NOT on GEO (SampleTag01-04). It is expected to be absent\n")
++  cat("   outside the Hill Lab. Routes A and B above are the\n")
++  cat("   reader-reproducible check; this one is supplementary.\n")
+ } else {
+   ref <- read.csv(ref_f)
+   key <- function(x) paste(x$features.plot, x$id)
+
+==========================================================================
+=== 02_figure_scripts/Exp80/01_figS3_all8tags_LAB_ONLY.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp80/02_r_rebuild/01_figS3.R	2026-09-17 15:23:39.905540000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/Exp80/01_figS3_all8tags_LAB_ONLY.R	2026-10-06 08:37:49.188636000 -0700
+@@ -20,13 +20,33 @@
+ ##
+ ## Usage: Rscript 01_figS3.R
+ ## ===========================================================================
++## --- path resolution (Zenodo package) ---------------------------------------
++## These lines replace the hardcoded lab paths of the working copy. Every other
++## change to this file is also path-only; no analysis line differs from the
++## script that produced the published figures. The complete diff against the
++## working copy is shipped at 05_verification/path_rewrite.diff - read it rather
++## than taking this comment's word for it.
++local({
++  a <- commandArgs(FALSE)
++  f <- sub("^--file=", "", a[grep("^--file=", a)])
++  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
++  repeat {
++    if (file.exists(file.path(d, ".ady3001_root"))) break
++    p <- dirname(d)
++    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
++    d <- p
++  }
++  assign("PKG", d, envir = .GlobalEnv)
++})
++source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
++
+ suppressPackageStartupMessages({
+   library(Seurat); library(ggplot2); library(dplyr); library(Matrix)
+   library(scCustomize); library(data.table)
+ })
+ 
+-DATA_DIR <- "/fh/fast/hill_g/Rhapsody/Marilyn/data"
+-OUT <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/Exp80/02_r_rebuild/out_figS3"
++DATA_DIR <- Sys.getenv("ADY3001_EXP80_FULL", "/fh/fast/hill_g/Rhapsody/Marilyn/data")  # lab-only: the 8-tag data is not on GEO
++OUT <- file.path(OUT_ROOT, "Exp80", "out_figS3")
+ FIG <- file.path(OUT, "figs")
+ for (d in c(OUT, FIG)) {
+   dir.create(d, recursive = TRUE, showWarnings = FALSE)
+
+==========================================================================
+=== 02_figure_scripts/common/load_bd.R
+==========================================================================
+--- /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/common/scripts/R/load_bd.R	2026-09-15 08:47:33.065373000 -0700
++++ /fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Zenodo/ady3001-scseq-code-v1.0.0/02_figure_scripts/common/load_bd.R	2026-10-06 08:37:49.128198000 -0700
+@@ -31,13 +31,9 @@
+ ## Nothing about normalisation, filtering, clustering or embedding is changed.
+ ## ---------------------------------------------------------------------------
+ 
+-## ggpubr and ArchR are absent from ~/R/.../4.4 and are installed by
+-## common/scripts/install_r_deps.sh into a library inside this Rebuild folder.
+-## Put that library first so those two resolve, without touching the home one.
+-local({
+-  lib <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/common/Rlib"
+-  if (dir.exists(lib)) .libPaths(c(lib, .libPaths()))
+-})
++## The library search path is set by config.R from $ADY3001_LIB before
++## this file is sourced. ggpubr and ArchR are not in a stock R library;
++## see 03_environment/README.md.
+ 
+ suppressPackageStartupMessages({
+   library(Matrix)

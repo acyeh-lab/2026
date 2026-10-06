@@ -1,0 +1,1551 @@
+---
+title: "Exp160_Final"
+author: "ACY"
+date: "2025-08-14"
+output: html_document
+---
+## Used module R/4.4.0
+## Exp160 contains Motoko's sorted epithelial cell data (3 cartridges)
+## Exp649 contains Motoko's ISC data (2 cartridges)
+
+```{r, warning=FALSE, message=FALSE, warning=FALSE, echo=F}
+set.seed(1234)
+#graphics.off()
+#rm(list=ls())
+#knitr::opts_chunk$set(fig.width=8, fig.height=6, dpi=300,echo=FALSE, warning=FALSE, message=FALSE)
+#knitr::opts_chunk$set(dev.args=list(bg="transparent"))
+#ROOT_DIR<-"~/Fred Hutchinson Cancer Research Center/GVHD - Hill Furlan Collaboration - General"
+setwd("/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Exp160/data")
+ROOT_DIR<-"/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/"
+stem<-"Exp160"
+DATA_DIR <- file.path(ROOT_DIR, stem, "data")      # SPECIFY HERE
+RES_DIR  <- file.path(ROOT_DIR, stem, "res")     # SPECIFY HERE
+RMD_DIR  <- file.path(ROOT_DIR, stem, "rmd")     # SPECIFY HERE
+CDS_DIR <- file.path(ROOT_DIR, stem, "cds")
+FIG_DIR <- file.path(ROOT_DIR,  stem, "figs")
+
+ENR_DIR<-file.path(ROOT_DIR, "Bioinformatics Resources", "MSigDB")
+SCRIPT_DIR<-file.path(ROOT_DIR, "develop", "SfScripts", "m3")
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(SeuratWrappers) # Needed to run monocle3; install as follows: devtools::install_github('satijalab/seurat-wrappers')
+  library(scCustomize) # Needed to run SetUP.R (/fh/fast/hill_g/Albert/scSeq_Analyses/Setup Files)
+    #Error: ERROR: no permission to install to directory ‘/home/ayeh/R/x86_64-pc-linux-gnu-library/4.3’
+  library(SCpubr) 
+  library(monocle3)
+  library(m3addon) #plugin for monocle 
+  #options(repos = c(CRAN = "https://cloud.r-project.org")) 
+  #devtools::install_github('scfurl/m3addon')
+  # ml HDF5/1.14.3-gompi-2023b
+
+  library(ggplot2)
+  library(ggrepel)
+  library(dplyr)
+  library(patchwork)
+  library(RColorBrewer)
+  library(tidyverse)
+  library(scCustomize)
+  library(ArchR)
+  library(viridis)
+  library(ggpubr)
+  library(Matrix)
+  # devtools::install_github("immunogenomics/presto")
+  
+  #dyn.load('/app/software/ArrayFire/3.8.1/lib64/libaf.so.3')
+  #library(RcppArrayFire)
+  #library(viewmastR) # https://github.com/scfurl/viewmaster
+})
+
+#hg38<-getBSgenome("BSgenome.Hsapiens.UCSC.hg38" )
+
+xfun::pkg_load2(c('base64enc', 'htmltools', 'mime'))
+#install.packages("tidyverse")
+#devtools::install_github("waltno/viewmaster")
+
+SFtheme<-theme_bw(base_size=14) + 
+  theme(panel.background = element_rect(fill = "transparent",colour = NA), # or theme_blank()
+    panel.grid.minor = element_blank(), 
+    panel.grid.major = element_blank(),
+    legend.background = element_rect(fill = "transparent"),
+    legend.box.background = element_rect(fill = "transparent"), 
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent",colour = NA))
+theme_set(SFtheme)
+
+
+clus_cols12 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78")
+clus_cols16 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78", 
+                 "#98df8a", "#ff9896", "#c5b0d5", "#c49c94")
+clus_cols24 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78", 
+                 "#98df8a", "#ff9896", "#c5b0d5", "#c49c94", "#f7b6d2", "#c7c7c7", 
+                 "#dbdb8d", "#9edae5", "#ad494a", "#8c6d31", "#e7ba52", "#17becf")
+clus_cols36 <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+                 "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78",
+                 "#98df8a", "#ff9896", "#c5b0d5", "#c49c94", "#f7b6d2", "#c7c7c7", 
+                 "#dbdb8d", "#9edae5", "#ad494a", "#8c6d31", "#e7ba52", "#17becf",
+                 "#1f78b4", "#33a02c", "#fb9a99", "#e31a1c", "#fdbf6f", "#cab2d6",
+                 "#6a3d9a", "#ff8c00", "#b15928", "#41ab5d", "#f03b20", "#807dba")
+
+#pie(rep(1, length(col)), col = col)
+datestamp<-"241108"
+
+rna_cols<-paletteContinuous(n=8)[c(1:3, 6:8)]
+
+```
+
+```{r - loads RSEC data, echo=FALSE, include = TRUE}
+## this uses RSEC
+f<-list.files(file.path(DATA_DIR, paste0("cart", 1:2)), full.names = T)[grep("RSEC_MolsPerCell", list.files(file.path(DATA_DIR, paste0("cart", 1:2))))] #This line lists all files in two directories, cart1 and cart2, inside DATA_DIR.
+files<-f[c(2,4)]
+
+dat<-lapply(files, function(file){
+t(as.matrix(data.table::fread(file), rownames=1))}) # For each file in files, it reads the file into a matrix using data.table::fread. The t() function transposes each matrix, making rows into columns and columns into rows. dat will contain two transposed matrices from the selected files.
+
+rn<-intersect(rownames(dat[[1]]), rownames(dat[[2]])) # rn is a list of row names common to both matrices.
+rn<-sapply(strsplit(rn, "\\|"), "[[", 1)  # The strsplit(rn, "\\|") splits each row name by the "|" delimiter. sapply(..., "[[", 1) extracts the first part before the delimiter for each name.
+
+dat2<-lapply(dat, function(mat){
+  rownames(mat)<-sapply(strsplit(rownames(mat), "\\|"), "[[", 1)
+  mat[rn,]
+}) #This modifies the row names of each matrix by keeping only the first part (before the "|"). Each matrix is then subsetted to include only the rows that match the names in rn, creating a new list dat2 with the processed matrices.
+
+colnames(dat2[[1]])<-paste0("cart1_", colnames(dat2[[1]]))
+colnames(dat2[[2]])<-paste0("cart2_", colnames(dat2[[2]]))
+mat<-Matrix(do.call(cbind, dat2), sparse=T) # The two matrices in dat2 are combined column-wise (i.e., bound together as columns) using do.call(cbind, dat2). The Matrix() function with sparse=T creates a sparse matrix from the combined data, saving memory by storing only non-zero entries.
+colnames(mat)<-make.unique(colnames(mat)) # This line ensures that all column names in the combined matrix mat are unique by appending numbers where duplicate names are found.
+
+rmat<-mat[5:dim(mat)[1],] # rmat contains the main GEX data starting from the 8th row.
+pmat<-mat[1:4,] # pmat contains the first 7 rows and holds the ADT data
+
+seu<-CreateSeuratObject(counts = rmat)
+seu$ADT<-CreateAssayObject(counts = pmat[,match(colnames(pmat), Cells(seu))])
+
+#DefaultAssay(seu)
+## ADT Features:
+# [1] "CD326"        
+# [5] "CD45.2"             "H-2Kb"              "I-A-I-E"  
+
+seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = 3000)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu), npcs = 50)
+#ElbowPlot(seu, 50)
+seu <- FindNeighbors(seu, dims = 1:40)
+seu <- FindClusters(seu, resolution = 0.5)
+seu <- RunUMAP(seu, dims = 1:40)
+
+DimPlot(seu)
+seu$cart<-strsplit(Cells(seu), "_") %>% sapply("[[", 1)
+seu[["percent.mt"]] <- PercentageFeatureSet(seu, pattern = "^mt-")
+seu$logUMI<-log10(seu$nCount_RNA)
+seu$log_RNA<-log10(seu$nCount_RNA)
+
+## For QC presentation ##
+VlnPlot(seu, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu, group.by = "cart")
+FeaturePlot_scCustom(seu, features = "percent.mt")
+####
+
+## Now filter by RNA count
+DefaultAssay(seu_sub)<-"RNA"
+
+#seu_sub <- subset(seu, subset = log_RNA > 3.25 & log_RNA < 4.25 & percent.mt < 40) 
+seu_sub <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40) # This gives us 8,032 samples after filtering (from 15,288 before0)
+seu_sub <- NormalizeData(seu_sub, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_sub <- FindVariableFeatures(seu_sub, selection.method = "vst", nfeatures = 3000)
+seu_sub <- ScaleData(seu_sub)
+seu_sub <- RunPCA(seu_sub, features = VariableFeatures(object = seu_sub), npcs = 50)
+#ElbowPlot(seu_sub, 50)
+seu_sub <- FindNeighbors(seu_sub, dims = 1:40)
+seu_sub <- FindClusters(seu_sub, resolution = 0.15)
+seu_sub <- RunUMAP(seu_sub, dims = 1:40)
+
+## Data output for QC ##
+DimPlot(seu_sub)
+VlnPlot(seu_sub, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_sub, group.by = "cart")
+FeaturePlot_scCustom(seu_sub, features = "percent.mt")
+#####
+
+## Normalize ADT Data ##
+DefaultAssay(seu_sub)<-"ADT"
+seu_sub <- NormalizeData(seu_sub, normalization.method = "CLR")
+seu_sub <- ScaleData(seu_sub)
+
+DimPlot(seu_sub, cols = clus_cols36)
+
+#### Temporary Save Point Here ####
+#The RDS file below has removed multiplets / those withoutproper hashtags, as well as filter by RNA counts and mito genes.  
+#Also, 4 groups (female IFNy +/- and male IFNy +/-) have been added
+saveRDS(seu_sub, file.path(CDS_DIR, "241108v2_processed.RDS"))
+####
+```
+
+
+```{r - analysis of clusters, echo=FALSE, include=TRUE}
+seu<-readRDS(file.path(CDS_DIR, "241108v2_processed.RDS"))
+
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Initial Clustering, res=0.15, dim=40", ".pdf")), width=6, height=6)
+DimPlot(seu, cols = clus_cols36)
+dev.off()
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Initial Clustering by cart", ".pdf")), width=6, height=6)
+DimPlot(seu,  group.by = "cart")
+dev.off()
+
+
+FeaturePlot_scCustom(seu, features = "Mki67")
+FeaturePlot_scCustom(seu, features = "percent.mt")
+
+DefaultAssay(seu)<-"RNA"
+markers_1_vs_5 <- FindMarkers(seu, ident.1 = 1, ident.2 = 5) #Helped identify Chgb and Cpe = enteroendocrine cells
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Chromogranin B", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Chgb")
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Muc2", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Muc2") # Goblet/Paneth
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Trpm5", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Trpm5") # Tufts
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Lyz1", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Lyz1") # Lysozyme (Paneth)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Mmp7", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Mmp7") # Mmp7 (Paneth)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Pou2f3", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Pou2f3") # Pou2f3 (Tufts)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Anpep", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Anpep") # Aminopeptidase N (Enterocyte)
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Epcam", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Epcam") # EPCAM
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Lgr5", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Lgr5") # ISC
+dev.off()
+
+
+FeaturePlot_scCustom(seu, features = "Bmi1") # ISC
+FeaturePlot_scCustom(seu, features = "Ephb2") # ISC
+markers_1_vs_4 <- FindMarkers(seu, ident.1 = 1, ident.2 = 4) #Helped identify Chgb and Cpe = enteroendocrine cells
+FeaturePlot_scCustom(seu, features = "Ccl25") # EPCAM
+
+pdf(file.path(FIG_DIR, paste0("[Final] - Markers", ".pdf")), width=6, height=6)
+DotPlot(seu, features = c("Chgb", "Cpe", "Muc2", "Lyz1", "Mmp7", "Trpm5", "Pou2f3", "Anpep", "Epcam","Lgr5","Ccl25")) + RotatedAxis()
+dev.off()
+
+```
+
+```{r - expression markers MHCI and II, echo=FALSE, include=TRUE}
+
+
+# [1] "CD326"        
+# [5] "CD45.2"             "H-2Kb"              "I-A-I-E"  
+
+DefaultAssay(seu)<-"ADT"
+
+my_comparisons <- list( c("0","1"),c("0","2"),c("0","3"),c("0","4"),c("0","5"),c("0","6")) 
+
+## Paper Figure ##
+pdf(file.path(FIG_DIR, paste0("[Final] - I-A-I-E", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "I-A-I-E", max.cutoff = "q99") # Tufts
+dev.off()
+
+## Paper Figure ##
+pdf(file.path(FIG_DIR, paste0("[Final] - I-A-I-E (violin)" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("I-A-I-E"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 12)
+dev.off()
+
+## Paper Figure ##
+pdf(file.path(FIG_DIR, paste0("[Final] - H-2Kb", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "H-2Kb", max.cutoff = "q99") # Tufts
+dev.off()
+
+## Paper Figure ##
+pdf(file.path(FIG_DIR, paste0("[Final] - H-2Kb (violin)" , ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("H-2Kb"), group.by="seurat_clusters", col = clus_cols36, pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 14)
+dev.off()
+
+
+```
+
+```{r - GSEA, echo=FALSE, include=FALSE}
+
+#---- GSEA analysis using fsgea ----#
+#https://crazyhottommy.github.io/scRNA-seq-workshop-Fall-2019/scRNAseq_workshop_3.html
+library(presto)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(fgsea)
+library(msigdbr)
+
+seu.genes <- wilcoxauc(seu, 'seurat_clusters')
+
+# for GSEA, we need the information of all genes, Seurat is just too slow if we test
+# all 20,000 genes. instead let's try presto which performs a fast Wilcoxon rank sum test 
+
+#---- Ontology Gene Sets ----#
+m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>% dplyr::select(gs_name, gene_symbol) 
+fgsea_sets<- m_t2g %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+
+#----- Comparing gene sets -----#
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "MHC_CLASS_II_PROTEIN_COMPLEX")
+FeaturePlot_scCustom(seu, features = "MHC_CLASS_II_PROTEIN_COMPLEX1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX violin", ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 5)
+dev.off()
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - GOCC_MHC_CLASS_I_PROTEIN_COMPLEX", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOCC_MHC_CLASS_I_PROTEIN_COMPLEX",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "MHC_CLASS_I_PROTEIN_COMPLEX")
+FeaturePlot_scCustom(seu, features = "MHC_CLASS_I_PROTEIN_COMPLEX1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - GOCC_MHC_CLASS_I_PROTEIN_COMPLEX violin", ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("MHC_CLASS_I_PROTEIN_COMPLEX1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 2.5)
+dev.off()
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION",]$gene_symbol
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "ANTIGEN_PROCESSING_AND_PRESENTATION")
+FeaturePlot_scCustom(seu, features = "ANTIGEN_PROCESSING_AND_PRESENTATION1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure 4 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION violin", ".pdf")), width=6, height=6)
+VlnPlot(seu, features = c("ANTIGEN_PROCESSING_AND_PRESENTATION1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 1)
+dev.off()
+
+## Paper Figure S5 ##
+DefaultAssay(seu)<-"RNA"
+pdf(file.path(FIG_DIR, paste0("[Final] - Markers GSEA", ".pdf")), width=4, height=6)
+DotPlot(seu, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1", "MHC_CLASS_I_PROTEIN_COMPLEX1", "ANTIGEN_PROCESSING_AND_PRESENTATION1")) + 
+  scale_x_discrete(labels = function(x) substr(x, 1, 15)) + 
+  RotatedAxis()
+dev.off()
+
+## Paper Figure S5 ##
+DefaultAssay(seu)<-"ADT"
+pdf(file.path(FIG_DIR, paste0("[Final] - Markers ADT", ".pdf")), width=4, height=6)
+DotPlot(seu, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()
+dev.off()
+
+
+
+```
+
+```{r - custom gene sets, echo=FALSE, include=FALSE}
+
+#Gene sets:
+#Grun D et al Nature 2015 (PMID: 26287467)
+#Haber AL et al Nature 2017 (PMID: 29144463)
+#Biton M et at. Cell 2018 (PMID: 30392957)
+#Hadjsombati MS et al. (Tuft cell) Immunity 2018 (PMID: 30021144)
+#Wang et al. JEM 2019 (PMID: 31753849)
+#Zhao Y et al. Mucosal Immunol 2020 (PMID: 31900405)
+#Yin J et al. Cell Discovery 2023 (https://www.nature.com/articles/s41421-023-00578-4)
+
+#Stem cell: 	Lgr5, Olfm4, Slc12a2, Ascl2, Axin2, Gkn3
+#Transit-amplifying cells (TA):	 Olfm4, Scl12a2, (nusap1 (found in human))
+#Goblet:	Muc2, Agr2, Clca3, Tff3, Ang4, Defa31
+#Tuft:		Dclk1, Trpm5, Gnat3 (α-gustducin), CD24a, Krt8, Krt18, Gfi1b, Il25, Ptgs1, Alox5, Ptprc, Chat , Rac2 (specific)
+#Paneth:	Mptx1 (specific), Ang4, Defa31, Defa17, Defa24, Defa22, Lyz1, Itln1 (Paneth in mouse)
+#Enteroendocrine: Reg4 (specific), Chga, Chgb, Tph1, Tac1, Neuro3, 
+#Enterocytes: Alpi, Apoa1, Apoa4, Fabp1, 
+#Partial_IEC: Top2a, Apol10a, Car4 (carbonic anhydrase IV), and Ube2c (a precursor intestinal cell marker), and these cells belonged to a stem cell cluster that has acquired partial IECs function
+
+
+custom_gene_sets <- list(
+  "Stem_Cell" = c("Lgr5", "Olfm4", "Slc12a2", "Ascl2", "Axin2", "Gkn3"),
+  "Transit_Amplifying_Cells" = c("Olfm4", "Scl12a2"), # nusap1 found in human
+  "Goblet" = c("Muc2", "Agr2", "Clca3", "Tff3", "Ang4", "Defa31"),
+  "Tuft" = c("Dclk1", "Trpm5", "Gnat3", "CD24a", "Krt8", "Krt18", "Gfi1b", "Il25", "Ptgs1", "Alox5", "Ptprc", "Chat", "Rac2"), # Gnat3 is α-gustducin, Rac2 specific
+  "Paneth" = c("Mptx1", "Ang4", "Defa31", "Defa17", "Defa24", "Defa22", "Lyz1", "Itln1"), # Mptx1 specific, Itln1 Paneth in mouse
+  "Enteroendocrine" = c("Reg4", "Chga", "Chgb", "Tph1", "Tac1", "Neuro3"), # Reg4 specific
+  "Enterocytes" = c("Alpi", "Apoa1", "Apoa4", "Fabp1"),
+  "Partial_IEC" = c("Top2a","Apol10a","Car4","Ube2c")
+)
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Stem_Cell", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Stem_Cell
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Stem_Cell")
+FeaturePlot_scCustom(seu, features = "Stem_Cell1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Transit_Amplifying_Cells", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Transit_Amplifying_Cells
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Transit_Amplifying_Cells")
+FeaturePlot_scCustom(seu, features = "Transit_Amplifying_Cells1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Goblet", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Goblet
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Goblet")
+FeaturePlot_scCustom(seu, features = "Goblet1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Tuft", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Tuft
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Tuft")
+FeaturePlot_scCustom(seu, features = "Tuft1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Paneth", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Paneth
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Paneth")
+FeaturePlot_scCustom(seu, features = "Paneth1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Enteroendocrine", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Enteroendocrine
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Enteroendocrine")
+FeaturePlot_scCustom(seu, features = "Enteroendocrine1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Enterocytes", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Enterocytes
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Enterocytes")
+FeaturePlot_scCustom(seu, features = "Enterocytes1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Custom Partial_IEC", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Partial_IEC
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Partial_IEC")
+FeaturePlot_scCustom(seu, features = "Partial_IEC1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+```
+
+# Pseudotime Trajectory
+```{r pseudotime}
+
+library(GenomicRanges)
+cds <- as.cell_data_set(seu)
+cds <- cluster_cells(cds, resolution=1e-3)
+
+cds<-learn_graph(cds, use_partition = T, close_loop = T)
+cds@clusters@listData[["UMAP"]][["clusters"]]<-clusters(cds)
+
+
+cds<- order_cells(cds)
+plot_cells(cds, color_cells_by = "pseudotime", show_trajectory_graph = T)
+
+seu$pseudotime<-pseudotime(cds)
+
+## Paper Figure S5 ##
+pdf(file.path(FIG_DIR, paste0("[Final] - Pseudotime", ".pdf")), width=6, height=6)
+FeaturePlot(seu, features = "pseudotime")+scale_color_gradientn(colors = viridis::plasma(n=10))
+dev.off()
+
+
+
+#### Old Stuff
+cds<-seurat_to_monocle3(seu)
+#troubleshooting
+cds@int_colData@listData[["reducedDims"]]@listData<-cds@int_colData@listData[["reducedDims"]]@listData[1]
+
+plot_cells(cds, genes = c("Sell", "Lef1"), scale_to_range = F)
+cds<-cluster_cells(cds, resolution = 0.001)
+plot_cells(cds)
+
+cds@clusters@listData[["UMAP"]][["clusters"]]<-clusters(cds)
+cds<-learn_graph(cds, use_partition = T, close_loop = T)
+cds<- order_cells(cds)
+plot_cells(cds, color_cells_by = "pseudotime", show_trajectory_graph = T)
+
+seu$pseudotime<-pseudotime(cds)
+pdf("../figs/cd4_pseudotime.pdf", width = 5, height = 4)
+FeaturePlot(seu, features = "pseudotime")+scale_color_gradientn(colors = viridis::plasma(n=10))&NoAxes()
+dev.off()
+```
+
+## New Stuff for Revision 8/14/25
+```{r Lgr4 and Fgfbp1 - New ISC model}
+
+## For reference (Figure 4)
+DimPlot(seu, cols = clus_cols36)
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Lgr5", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Lgr5") # ISC
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Lgr4", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Lgr4") # ISC
+dev.off()
+
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Fgfbp1", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu, features = "Fgfbp1") # ISC
+dev.off()
+
+
+## Now create custom gene set for Lgr5, Lgr4, Fgfbp1, and MHCI/II
+
+custom_gene_sets <- list(
+  "Stem_Cell" = c("Lgr5", "Olfm4", "Slc12a2", "Ascl2", "Axin2", "Gkn3"),
+  "Transit_Amplifying_Cells" = c("Olfm4", "Scl12a2"), # nusap1 found in human
+  "Goblet" = c("Muc2", "Agr2", "Clca3", "Tff3", "Ang4", "Defa31"),
+  "Tuft" = c("Dclk1", "Trpm5", "Gnat3", "CD24a", "Krt8", "Krt18", "Gfi1b", "Il25", "Ptgs1", "Alox5", "Ptprc", "Chat", "Rac2"), # Gnat3 is α-gustducin, Rac2 specific
+  "Paneth" = c("Mptx1", "Ang4", "Defa31", "Defa17", "Defa24", "Defa22", "Lyz1", "Itln1"), # Mptx1 specific, Itln1 Paneth in mouse
+  "Enteroendocrine" = c("Reg4", "Chga", "Chgb", "Tph1", "Tac1", "Neuro3"), # Reg4 specific
+  "Enterocytes" = c("Alpi", "Apoa1", "Apoa4", "Fabp1"),
+  "Partial_IEC" = c("Top2a","Apol10a","Car4","Ube2c"),
+  "Malagola_2024" = c("Atad2", "Stmn1", "Smarca5", "Dek")
+)
+
+## Paper Revision ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Malagola_2024", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Malagola_2024
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Malagola_2024")
+FeaturePlot_scCustom(seu, features = "Malagola_20241", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+
+
+FeaturePlot_scCustom(seu, features = "H2-Ab1") # Goblet/Paneth
+FeaturePlot_scCustom(seu, features = "H2-Aa") # Goblet/Paneth
+
+## Malagla et al.
+## Atad2, Stmn1, Smarca5 and Dek
+
+## Class II KO
+## Gene is expressed, but protein is not there (gene is)
+
+```
+
+
+```{r add Cart 3 - use projection map for continuity (no re-embedding)}
+
+## Now we will get the old embedding
+seu_ref <- readRDS(file.path(CDS_DIR, "241108v2_processed.RDS"))
+
+# 1) Keep the original coordinates
+old_umap <- Embeddings(seu_ref, "umap")
+# 2) Re-run UMAP **only to get the model**, not to change the layout
+#    (use same dims; set a seed for reproducibility)
+seu_ref <- RunUMAP(
+  seu_ref,
+  dims = 1:40,
+  umap.method = "uwot",
+  return.model = TRUE,
+  seed.use = 1234
+)
+# 3) Restore the original coordinates so the reference plot is unchanged
+seu_ref[["umap"]]@cell.embeddings[rownames(old_umap), ] <- old_umap
+
+## read cart3 like cart1/2, trim rownames at '|', and keep only genes present in the reference
+f3 <- list.files(file.path(DATA_DIR, "cart3"), full.names = TRUE)
+f3 <- f3[grepl("RSEC_MolsPerCell", basename(f3))][2]  # pick the RSEC_MolsPerCell file
+
+dat3 <- t(as.matrix(data.table::fread(f3), rownames = 1))
+rownames(dat3) <- sapply(strsplit(rownames(dat3), "\\|"), `[[`, 1)
+
+colnames(dat3)<-paste0("cart3_", colnames(dat3))
+colnames(dat3)<-make.unique(colnames(dat3)) # This line ensures that all column names in the combined matrix mat are unique by appending numbers where duplicate names are found.
+
+mat3<-Matrix(dat3, sparse=T) # The two matrices in dat2 are combined column-wise (i.e., bound together as columns) using do.call(cbind, dat2). The Matrix() function with sparse=T creates a sparse matrix from the combined data, saving memory by storing only non-zero entries.
+
+rmat3<-mat3[5:dim(mat3)[1],] # rmat contains the main GEX data starting from the 8th row.
+pmat3<-mat3[1:4,] # pmat contains the first 7 rows and holds the ADT data
+
+seu3<-CreateSeuratObject(counts = rmat3)
+seu3$ADT<-CreateAssayObject(counts = pmat3[,match(colnames(pmat3), Cells(seu3))]) # Gives us 13,174 samples
+seu3$cart<-"cart3"
+seu3[["percent.mt"]] <- PercentageFeatureSet(seu3, pattern = "^mt-")
+seu3$logUMI<-log10(seu3$nCount_RNA)
+seu3$log_RNA<-log10(seu3$nCount_RNA)
+
+seu3 <- NormalizeData(seu3, normalization.method = "LogNormalize", scale.factor = 10000)
+seu3 <- FindVariableFeatures(seu3, selection.method = "vst", nfeatures = 3000)
+seu3 <- ScaleData(seu3)
+seu3 <- RunPCA(seu3, features = VariableFeatures(object = seu3), npcs = 50)
+#ElbowPlot(seu3, 50)
+#seu3 <- FindNeighbors(seu3, dims = 1:40)
+#seu3 <- FindClusters(seu3, resolution = 0.5)
+#seu3 <- RunUMAP(seu3, dims = 1:40)
+
+## For QC presentation ##
+#DimPlot(seu3)
+#VlnPlot(seu3, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "orig.ident", ncol = 4, pt.size = 0, col="blue")
+#FeaturePlot_scCustom(seu3, features = "percent.mt")
+####
+
+
+seu_sub3 <- subset(seu3, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40) # This gives us 2,782 samples after filtering (from 13,174 before)
+seu_sub3 <- NormalizeData(seu_sub3, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_sub3 <- FindVariableFeatures(seu_sub3, selection.method = "vst", nfeatures = 3000)
+seu_sub3 <- ScaleData(seu_sub3)
+seu_sub3 <- RunPCA(seu_sub3, features = VariableFeatures(object = seu_sub3), npcs = 50)
+#ElbowPlot(seu_sub3, 50)
+#seu_sub3 <- FindNeighbors(seu_sub3, dims = 1:40)
+#seu_sub3 <- FindClusters(seu_sub3, resolution = 0.15)
+#seu_sub3 <- RunUMAP(seu_sub3, dims = 1:40)
+
+## Data output for QC ##
+#DimPlot(seu_sub3)
+#VlnPlot(seu_sub3, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "orig.ident", ncol = 4, pt.size = 0)
+#FeaturePlot_scCustom(seu_sub3, features = "percent.mt")
+#####
+
+
+## (TRIAL) Use k-NN barycentric averaging: Appliess k-NN barycentric averaging: projecting each query point q into UMAP by taking the weighted centroid of its k nearest reference neighbors in PC space. 
+# 1) Find k nearest reference neighbors in reference PCA space.
+# 2) Place each query cell at the weighted average of those neighbors’ UMAP coordinates (e.g., weights ∝ 1/d, normalized)
+{
+  
+  # Map cart3 onto the reference PCA and project onto the reference UMAP
+  anchors <- FindTransferAnchors(
+    reference = seu_ref,
+    query = seu_sub3,
+    normalization.method = "LogNormalize",
+    reference.reduction = "pca",
+    dims = 1:40,
+    features = VariableFeatures(seu_sub3),
+  )
+  
+  # Put cart3 into reference PC space
+  seu_sub3 <- IntegrateEmbeddings(
+    anchorset = anchors, reference = seu_ref, query = seu_sub3,
+    new.reduction.name = "ref.pca", reductions = "pcaproject", dims = 1:40
+  )
+
+  library(FNN) # Load fast nearest neighbor which provdes fast k-NN search
+  # 1) reference and query coordinates in the *same* PC space
+  ref_pc  <- Embeddings(seu_ref, "pca")[, 1:40, drop = FALSE]
+  qry_pc  <- Embeddings(seu_sub3, "ref.pca")[, 1:40, drop = FALSE]
+  
+  # 2) reference UMAP to “borrow” coordinates from
+  ref_umap <- Embeddings(seu_ref, "umap")
+  # These are the frozen UMAP coordinates you want to keep. We’ll “paint” query cells onto this map.
+  
+  # 3) kNN in PC space
+  k <- 30  # try 20–50 if batches differ
+  nn <- FNN::get.knnx(ref_pc, qry_pc, k = k)   # nn$nn.index (rows = query cells), nn$nn.dist
+  # For each query cell, find its k nearest reference neighbors in PC space:
+  # nn$nn.index[i, ] → indices of the k nearest reference cells for query i
+  # nn$nn.dist[i, ] → their Euclidean distances
+  
+  # 4) weights: inverse-distance (stabilized), normalized per row
+  eps <- 1e-8
+  w <- 1 / (nn$nn.dist + eps)
+  w <- w / rowSums(w)
+  # Turn distances into weights:
+  # Raw weights 1/(d+ε) (closer neighbors get higher weight; ε avoids ∞ when d=0).
+  # Row-normalize so each query’s weights sum to 1 (convex combination). 
+  
+  # 5) barycentric projection into the *existing* UMAP
+  qry_umap <- matrix(0, nrow = nrow(qry_pc), ncol = ncol(ref_umap))
+  for (i in seq_len(nrow(qry_pc))) {
+    qry_umap[i, ] <- crossprod(w[i, ], ref_umap[nn$nn.index[i, ], , drop = FALSE])
+  }
+  rownames(qry_umap) <- rownames(qry_pc)
+  colnames(qry_umap) <- colnames(ref_umap)
+  # For each query cell i, compute a weighted average (barycenter) of its neighbors’ UMAP coordinates:
+  # ref_umap[nn$nn.index[i, ], ] → the k neighbor points in UMAP
+  # crossprod(w[i, ], neighbors) → 1×k weights times k×2 coords → 1×2 projected point
+  # Set row/column names so Seurat recognizes identities and axes.
+  
+  # 6) store and plot
+  seu_sub3[["umap"]] <- CreateDimReducObject(embeddings = qry_umap, key = "UMAP_")
+  combo <- merge(seu_ref, y = seu_sub3)
+  umap_all <- rbind(Embeddings(seu_ref, "umap"), Embeddings(seu_sub3, "umap"))[colnames(combo), , drop = FALSE]
+  combo[["umap"]] <- CreateDimReducObject(embeddings = umap_all, key = "UMAP_")
+  
+  ## Revision Figure ##
+  pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - Projection Map", ".pdf")), width=6, height=6)
+  DimPlot(combo, reduction = "umap", group.by = "cart")
+  dev.off()
+  ##
+}
+
+## Use Project UMAP
+# 1) Expresses query cells in the reference PCA space (anchors).
+# 2) Uses the stored UMAP model (metric, n_neighbors, local radii σ/ρ, fuzzy kNN graph) to place query points, often with a few optimization steps that respect the UMAP objective while keeping reference points fixed.
+# 3) Uses the same geometry/weights that created the reference UMAP. This is the canonical out-of-sample extension.
+{
+  
+  anchors <- FindTransferAnchors(
+    reference = seu_ref, query = seu_sub3,
+    normalization.method = "LogNormalize",
+    reference.reduction = "pca", dims = 1:40
+  )
+  ## 1) Ensure the reference UMAP has a stored uwot model (and keep layout)
+  umap_old <- Embeddings(seu_ref, "umap")
+  if (is.null(seu_ref@reductions$umap@misc$model)) {
+    seu_ref <- RunUMAP(
+      seu_ref, dims = 1:40, umap.method = "uwot",
+      return.model = TRUE, seed.use = 1234
+    )
+    # restore original coordinates (so your map does not move)
+    seu_ref[["umap"]]@cell.embeddings[rownames(umap_old), ] <- umap_old
+  }
+  
+  seu_sub3 <- MapQuery(
+    anchorset = anchors,
+    query = seu_sub3,
+    reference = seu_ref,
+    reference.reduction = "pca",
+    reduction.model = "umap"   # uses seu_ref@reductions$umap@misc$model
+  )
+  
+  # Ensure both have a reduction called "umap"
+  if ("ref.umap" %in% names(seu_sub3@reductions) && !"umap" %in% names(seu_sub3@reductions)) {
+    seu_sub3[["umap"]] <- seu_sub3[["ref.umap"]]
+  }
+  stopifnot("umap" %in% names(seu_ref@reductions))
+  stopifnot("umap" %in% names(seu_sub3@reductions))  
+  
+  combo <- merge(seu_ref, y = seu_sub3)
+  
+  # build a single UMAP matrix for all cells, ordered to combo's columns
+  umap_ref <- Embeddings(seu_ref, "umap")
+  umap_q   <- Embeddings(seu_sub3,    "umap")
+  umap_all <- rbind(umap_ref, umap_q)
+  umap_all <- umap_all[colnames(combo), , drop = FALSE]
+  
+  combo[["umap"]] <- CreateDimReducObject(
+    embeddings = umap_all,
+    key = "UMAP_",
+    assay = DefaultAssay(seu_ref)   # typically "RNA"
+  )
+  
+  # visualize
+  DimPlot(combo, reduction = "umap", group.by = "cart")          # cart1/cart2 vs cart3
+  # highlight just cart3 on top of grey ref
+  DimPlot(combo, reduction = "umap", cells.highlight = list(colnames(seu3)),
+          cols = c("grey85", "#D55E00"), pt.size = 0.6)
+}
+
+```
+
+```{r add Cart 3 - re-embed with ALL carts}
+## this uses RSEC
+f_r2<-list.files(file.path(DATA_DIR, paste0("cart", 1:3)), full.names = T)[grep("RSEC_MolsPerCell", list.files(file.path(DATA_DIR, paste0("cart", 1:3))))] #This line lists all files inside 3 directories DATA_DIR.
+files_r2<-f_r2[c(2,4,6)]
+
+dat_r2<-lapply(files_r2, function(file){
+t(as.matrix(data.table::fread(file), rownames=1))}) # For each file in files, it reads the file into a matrix using data.table::fread. The t() function transposes each matrix, making rows into columns and columns into rows. dat will contain two transposed matrices from the selected files.
+
+rn_r2<-intersect(intersect(rownames(dat_r2[[1]]), rownames(dat_r2[[2]])), rownames(dat_r2[[3]])) # rn is a list of row names common to both matrices.
+rn_r2<-sapply(strsplit(rn_r2, "\\|"), "[[", 1)  # The strsplit(rn, "\\|") splits each row name by the "|" delimiter. sapply(..., "[[", 1) extracts the first part before the delimiter for each name.
+
+dat2_r2<-lapply(dat_r2, function(mat){
+  rownames(mat)<-sapply(strsplit(rownames(mat), "\\|"), "[[", 1)
+  mat[rn_r2,]
+}) #This modifies the row names of each matrix by keeping only the first part (before the "|"). Each matrix is then subsetted to include only the rows that match the names in rn, creating a new list dat2 with the processed matrices.
+
+colnames(dat2_r2[[1]])<-paste0("cart1_", colnames(dat2_r2[[1]]))
+colnames(dat2_r2[[2]])<-paste0("cart2_", colnames(dat2_r2[[2]]))
+colnames(dat2_r2[[3]])<-paste0("cart3_", colnames(dat2_r2[[3]]))
+mat_r2<-Matrix(do.call(cbind, dat2_r2), sparse=T) # The two matrices in dat2 are combined column-wise (i.e., bound together as columns) using do.call(cbind, dat2). The Matrix() function with sparse=T creates a sparse matrix from the combined data, saving memory by storing only non-zero entries.
+colnames(mat_r2)<-make.unique(colnames(mat_r2)) # This line ensures that all column names in the combined matrix mat are unique by appending numbers where duplicate names are found.
+
+rmat_r2<-mat_r2[5:dim(mat_r2)[1],] # rmat contains the main GEX data starting from the 8th row.
+pmat_r2<-mat_r2[1:4,] # pmat contains the first 7 rows and holds the ADT data
+
+seu_r2<-CreateSeuratObject(counts = rmat_r2)
+seu_r2$ADT<-CreateAssayObject(counts = pmat_r2[,match(colnames(pmat_r2), Cells(seu_r2))])
+
+#DefaultAssay(seu)
+## ADT Features:
+# [1] "CD326"        
+# [5] "CD45.2"             "H-2Kb"              "I-A-I-E"  
+
+seu_r2 <- NormalizeData(seu_r2, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_r2 <- FindVariableFeatures(seu_r2, selection.method = "vst", nfeatures = 3000)
+seu_r2 <- ScaleData(seu_r2)
+seu_r2 <- RunPCA(seu_r2, features = VariableFeatures(object = seu_r2), npcs = 50)
+#ElbowPlot(seu_r2, 50)
+seu_r2 <- FindNeighbors(seu_r2, dims = 1:40)
+seu_r2 <- FindClusters(seu_r2, resolution = 0.5)
+seu_r2 <- RunUMAP(seu_r2, dims = 1:40)
+
+DimPlot(seu_r2, cols = clus_cols36)
+seu_r2$cart<-strsplit(Cells(seu_r2), "_") %>% sapply("[[", 1)
+seu_r2[["percent.mt"]] <- PercentageFeatureSet(seu_r2, pattern = "^mt-")
+seu_r2$logUMI<-log10(seu_r2$nCount_RNA)
+seu_r2$logRNA<-log10(seu_r2$nCount_RNA)
+
+## For QC presentation ##
+VlnPlot(seu_r2, features = c("nFeature_RNA", "logRNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_r2, group.by = "cart")
+FeaturePlot_scCustom(seu_r2, features = "percent.mt")
+####
+
+## Now filter by RNA count
+DefaultAssay(seu_r2)<-"RNA"
+
+seu_sub_r2 <- subset(seu_r2, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40) # This gives us 10,812 samples after filtering (from 28,462 before)
+seu_sub_r2 <- NormalizeData(seu_sub_r2, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_sub_r2 <- FindVariableFeatures(seu_sub_r2, selection.method = "vst", nfeatures = 3000)
+seu_sub_r2 <- ScaleData(seu_sub_r2)
+seu_sub_r2 <- RunPCA(seu_sub_r2, features = VariableFeatures(object = seu_sub_r2), npcs = 50)
+#ElbowPlot(seu_sub_r2, 50)
+seu_sub_r2 <- FindNeighbors(seu_sub_r2, dims = 1:40)
+seu_sub_r2 <- FindClusters(seu_sub_r2, resolution = 0.2)
+seu_sub_r2 <- RunUMAP(seu_sub_r2, dims = 1:40)
+
+## Data output for QC ##
+DimPlot(seu_sub_r2, cols = clus_cols36)
+VlnPlot(seu_sub_r2, features = c("nFeature_R2NA", "log_R2NA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_sub_r2, group.by = "cart")
+FeaturePlot_scCustom(seu_sub_r2, features = "percent.mt")
+#####
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Re-embed with all Carts", ".pdf")), width=6, height=6)
+DimPlot(seu_sub_r2, group.by = "cart")
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Re-embed with all Carts - clusters res=0.2, dims=40", ".pdf")), width=6, height=6)
+DimPlot(seu_sub_r2, cols = clus_cols36)
+dev.off()
+#####################
+
+
+## Normalize ADT Data ##
+DefaultAssay(seu_sub_r2)<-"ADT"
+seu_sub_r2 <- NormalizeData(seu_sub_r2, normalization.method = "CLR")
+seu_sub_r2 <- ScaleData(seu_sub_r2)
+
+#### Temporary Save Point Here ####
+#The RDS file below has removed multiplets / those without proper hashtags, as well as filter by RNA counts and mito genes.  
+#Also, 4 groups (female IFNy +/- and male IFNy +/-) have been added
+saveRDS(seu_sub_r2, file.path(CDS_DIR, "250814_cart_all_processed.RDS"))
+####
+```
+
+```{r add Cart 3 with all groups re-embed - custom gene set and other ADT/RNA analysis}
+seu_sub_r2<-readRDS(file.path(CDS_DIR, "250814_cart_all_processed.RDS"))
+
+#Gene sets:
+#Grun D et al Nature 2015 (PMID: 26287467)
+#Haber AL et al Nature 2017 (PMID: 29144463)
+#Biton M et at. Cell 2018 (PMID: 30392957)
+#Hadjsombati MS et al. (Tuft cell) Immunity 2018 (PMID: 30021144)
+#Wang et al. JEM 2019 (PMID: 31753849)
+#Zhao Y et al. Mucosal Immunol 2020 (PMID: 31900405)
+#Yin J et al. Cell Discovery 2023 (https://www.nature.com/articles/s41421-023-00578-4)
+
+#Stem cell: 	Lgr5, Olfm4, Slc12a2, Ascl2, Axin2, Gkn3
+#Transit-amplifying cells (TA):	 Olfm4, Scl12a2, (nusap1 (found in human))
+#Goblet:	Muc2, Agr2, Clca3, Tff3, Ang4, Defa31
+#Tuft:		Dclk1, Trpm5, Gnat3 (α-gustducin), CD24a, Krt8, Krt18, Gfi1b, Il25, Ptgs1, Alox5, Ptprc, Chat , Rac2 (specific)
+#Paneth:	Mptx1 (specific), Ang4, Defa31, Defa17, Defa24, Defa22, Lyz1, Itln1 (Paneth in mouse)
+#Enteroendocrine: Reg4 (specific), Chga, Chgb, Tph1, Tac1, Neuro3, 
+#Enterocytes: Alpi, Apoa1, Apoa4, Fabp1, 
+#Partial_IEC: Top2a, Apol10a, Car4 (carbonic anhydrase IV), and Ube2c (a precursor intestinal cell marker), and these cells belonged to a stem cell cluster that has acquired partial IECs function
+
+
+custom_gene_sets <- list(
+  "Stem_Cell" = c("Lgr5", "Olfm4", "Slc12a2", "Ascl2", "Axin2", "Gkn3"),
+  "Transit_Amplifying_Cells" = c("Olfm4", "Scl12a2"), # nusap1 found in human
+  "Goblet" = c("Muc2", "Agr2", "Clca3", "Tff3", "Ang4", "Defa31"),
+  "Tuft" = c("Dclk1", "Trpm5", "Gnat3", "CD24a", "Krt8", "Krt18", "Gfi1b", "Il25", "Ptgs1", "Alox5", "Ptprc", "Chat", "Rac2"), # Gnat3 is α-gustducin, Rac2 specific
+  "Paneth" = c("Mptx1", "Ang4", "Defa31", "Defa17", "Defa24", "Defa22", "Lyz1", "Itln1"), # Mptx1 specific, Itln1 Paneth in mouse
+  "Enteroendocrine" = c("Reg4", "Chga", "Chgb", "Tph1", "Tac1", "Neuro3"), # Reg4 specific
+  "Enterocytes" = c("Alpi", "Apoa1", "Apoa4", "Fabp1"),
+  "Partial_IEC" = c("Top2a","Apol10a","Car4","Ube2c")
+)
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Stem_Cell", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Stem_Cell
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Stem_Cell")
+FeaturePlot_scCustom(seu_sub_r2, features = "Stem_Cell1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Transit_Amplifying_Cells", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Transit_Amplifying_Cells
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Transit_Amplifying_Cells")
+FeaturePlot_scCustom(seu_sub_r2, features = "Transit_Amplifying_Cells1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Goblet", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Goblet
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Goblet")
+FeaturePlot_scCustom(seu_sub_r2, features = "Goblet1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Tuft", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Tuft
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Tuft")
+FeaturePlot_scCustom(seu_sub_r2, features = "Tuft1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Paneth", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Paneth
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Paneth")
+FeaturePlot_scCustom(seu_sub_r2, features = "Paneth1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Enteroendocrine", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Enteroendocrine
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Enteroendocrine")
+FeaturePlot_scCustom(seu_sub_r2, features = "Enteroendocrine1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Enterocytes", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Enterocytes
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Enterocytes")
+FeaturePlot_scCustom(seu_sub_r2, features = "Enterocytes1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Partial_IEC", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Partial_IEC
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "Partial_IEC")
+FeaturePlot_scCustom(seu_sub_r2, features = "Partial_IEC1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+my_comparisons <- list( c("0","1"),c("0","2"),c("0","3"),c("0","4"),c("0","5"),c("0","6"),c("0","7"),c("0","8"))
+
+DefaultAssay(seu_sub_r2)<-"ADT"
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - I-A-I-E; cutoff=q95", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "I-A-I-E", max.cutoff = "q95") # Tufts
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - I-A-I-E (violin)" , ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r2, features = c("I-A-I-E"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 13.5)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - H-2Kb; cutoff=q95", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "H-2Kb", max.cutoff = "q95") # Tufts
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - H-2Kb (violin)" , ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r2, features = c("H-2Kb"), group.by="seurat_clusters", col = clus_cols36, pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 15.5)
+dev.off()
+
+DefaultAssay(seu_sub_r2)<-"RNA"
+pdf(file.path(FIG_DIR, paste0("[Revision] - H2-Aa; cutoff=q95" , ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "H2-Aa", max.cutoff = "q95") # 
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - H2-Ab1; cutoff=q95" , ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "H2-Ab1", max.cutoff = "q95") # 
+dev.off()
+
+
+
+```
+
+```{r add Cart 3 with all groups re-embed - GSEA, echo=FALSE, include=FALSE}
+seu_sub_r2<-readRDS(file.path(CDS_DIR, "250814_cart_all_processed.RDS"))
+
+#---- GSEA analysis using fsgea ----#
+#https://crazyhottommy.github.io/scRNA-seq-workshop-Fall-2019/scRNAseq_workshop_3.html
+library(presto)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(fgsea)
+library(msigdbr)
+
+seu_sub_r2.genes <- wilcoxauc(seu_sub_r2, 'seurat_clusters')
+
+# for GSEA, we need the information of all genes, seu_sub_r2rat is just too slow if we test
+# all 20,000 genes. instead let's try presto which performs a fast Wilcoxon rank sum test 
+
+#---- Ontology Gene Sets ----#
+m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>% dplyr::select(gs_name, gene_symbol) 
+fgsea_sets<- m_t2g %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+
+#----- Comparing gene sets -----#
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX",]$gene_symbol
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "MHC_CLASS_II_PROTEIN_COMPLEX")
+FeaturePlot_scCustom(seu_sub_r2, features = "MHC_CLASS_II_PROTEIN_COMPLEX1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX violin", ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r2, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - GOCC_MHC_CLASS_I_PROTEIN_COMPLEX", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOCC_MHC_CLASS_I_PROTEIN_COMPLEX",]$gene_symbol
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "MHC_CLASS_I_PROTEIN_COMPLEX")
+FeaturePlot_scCustom(seu_sub_r2, features = "MHC_CLASS_I_PROTEIN_COMPLEX1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - GOCC_MHC_CLASS_I_PROTEIN_COMPLEX violin", ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r2, features = c("MHC_CLASS_I_PROTEIN_COMPLEX1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 3)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION",]$gene_symbol
+DefaultAssay(seu_sub_r2)<-"RNA"
+seu_sub_r2<-AddModuleScore(seu_sub_r2, features = list(bac), name = "ANTIGEN_PROCESSING_AND_PRESENTATION")
+FeaturePlot_scCustom(seu_sub_r2, features = "ANTIGEN_PROCESSING_AND_PRESENTATION1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION violin", ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r2, features = c("ANTIGEN_PROCESSING_AND_PRESENTATION1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 1.2)
+dev.off()
+
+## Revision Figure ##
+DefaultAssay(seu_sub_r2)<-"RNA"
+pdf(file.path(FIG_DIR, paste0("[Revision] - Markers GSEA", ".pdf")), width=4, height=6)
+DotPlot(seu_sub_r2, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1", "MHC_CLASS_I_PROTEIN_COMPLEX1", "ANTIGEN_PROCESSING_AND_PRESENTATION1")) + 
+  scale_x_discrete(labels = function(x) substr(x, 1, 15)) + 
+  RotatedAxis()
+dev.off()
+
+## Revision Figure ##
+DefaultAssay(seu_sub_r2)<-"ADT"
+pdf(file.path(FIG_DIR, paste0("[Revision] - Markers ADT", ".pdf")), width=4, height=6)
+DotPlot(seu_sub_r2, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()
+dev.off()
+
+
+
+```
+
+```{r add Cart 3 with all groups re-embed - Lgr4 and Fgfbp1}
+seu_sub_r2<-readRDS(file.path(CDS_DIR, "250814_cart_all_processed.RDS"))
+
+
+DimPlot(seu_sub_r2, cols = clus_cols36)
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Lgr5_new_embed", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "Lgr5") # ISC
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Lgr4_new_embed", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "Lgr4") # ISC
+dev.off()
+
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - Fgfbp1_new_embed", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r2, features = "Fgfbp1") # ISC
+dev.off()
+
+
+## Now create custom gene set for Lgr5, Lgr4, Fgfbp1, and MHCI/II
+
+custom_gene_sets <- list(
+  "Stem_Cell" = c("Lgr5", "Olfm4", "Slc12a2", "Ascl2", "Axin2", "Gkn3"),
+  "Transit_Amplifying_Cells" = c("Olfm4", "Scl12a2"), # nusap1 found in human
+  "Goblet" = c("Muc2", "Agr2", "Clca3", "Tff3", "Ang4", "Defa31"),
+  "Tuft" = c("Dclk1", "Trpm5", "Gnat3", "CD24a", "Krt8", "Krt18", "Gfi1b", "Il25", "Ptgs1", "Alox5", "Ptprc", "Chat", "Rac2"), # Gnat3 is α-gustducin, Rac2 specific
+  "Paneth" = c("Mptx1", "Ang4", "Defa31", "Defa17", "Defa24", "Defa22", "Lyz1", "Itln1"), # Mptx1 specific, Itln1 Paneth in mouse
+  "Enteroendocrine" = c("Reg4", "Chga", "Chgb", "Tph1", "Tac1", "Neuro3"), # Reg4 specific
+  "Enterocytes" = c("Alpi", "Apoa1", "Apoa4", "Fabp1"),
+  "Partial_IEC" = c("Top2a","Apol10a","Car4","Ube2c"),
+  "Malagola_2024" = c("Atad2", "Stmn1", "Smarca5", "Dek")
+)
+
+## Paper Revision ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Malagola_2024", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Malagola_2024
+DefaultAssay(seu)<-"RNA"
+seu<-AddModuleScore(seu, features = list(bac), name = "Malagola_2024")
+FeaturePlot_scCustom(seu, features = "Malagola_20241", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+
+```
+
+
+```{r add Cart 3 - re-embed with Cart 2 only}
+## this uses RSEC
+f_r<-list.files(file.path(DATA_DIR, paste0("cart", 2:3)), full.names = T)[grep("RSEC_MolsPerCell", list.files(file.path(DATA_DIR, paste0("cart", 2:3))))] #This line lists all files in two directories, cart1 and cart2, inside DATA_DIR.
+files_r<-f_r[c(2,4)]
+
+dat_r<-lapply(files_r, function(file){
+t(as.matrix(data.table::fread(file), rownames=1))}) # For each file in files, it reads the file into a matrix using data.table::fread. The t() function transposes each matrix, making rows into columns and columns into rows. dat will contain two transposed matrices from the selected files.
+
+rn_r<-intersect(rownames(dat_r[[1]]), rownames(dat_r[[2]])) # rn is a list of row names common to both matrices.
+rn_r<-sapply(strsplit(rn_r, "\\|"), "[[", 1)  # The strsplit(rn, "\\|") splits each row name by the "|" delimiter. sapply(..., "[[", 1) extracts the first part before the delimiter for each name.
+
+dat2_r<-lapply(dat_r, function(mat){
+  rownames(mat)<-sapply(strsplit(rownames(mat), "\\|"), "[[", 1)
+  mat[rn_r,]
+}) #This modifies the row names of each matrix by keeping only the first part (before the "|"). Each matrix is then subsetted to include only the rows that match the names in rn, creating a new list dat2 with the processed matrices.
+
+colnames(dat2_r[[1]])<-paste0("cart2_", colnames(dat2_r[[1]]))
+colnames(dat2_r[[2]])<-paste0("cart3_", colnames(dat2_r[[2]]))
+mat_r<-Matrix(do.call(cbind, dat2_r), sparse=T) # The two matrices in dat2 are combined column-wise (i.e., bound together as columns) using do.call(cbind, dat2). The Matrix() function with sparse=T creates a sparse matrix from the combined data, saving memory by storing only non-zero entries.
+colnames(mat_r)<-make.unique(colnames(mat_r)) # This line ensures that all column names in the combined matrix mat are unique by appending numbers where duplicate names are found.
+
+rmat_r<-mat_r[5:dim(mat_r)[1],] # rmat contains the main GEX data starting from the 8th row.
+pmat_r<-mat_r[1:4,] # pmat contains the first 7 rows and holds the ADT data
+
+seu_r<-CreateSeuratObject(counts = rmat_r)
+seu_r$ADT<-CreateAssayObject(counts = pmat_r[,match(colnames(pmat_r), Cells(seu_r))])
+
+#DefaultAssay(seu)
+## ADT Features:
+# [1] "CD326"        
+# [5] "CD45.2"             "H-2Kb"              "I-A-I-E"  
+
+seu_r <- NormalizeData(seu_r, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_r <- FindVariableFeatures(seu_r, selection.method = "vst", nfeatures = 3000)
+seu_r <- ScaleData(seu_r)
+seu_r <- RunPCA(seu_r, features = VariableFeatures(object = seu_r), npcs = 50)
+#ElbowPlot(seu_r, 50)
+seu_r <- FindNeighbors(seu_r, dims = 1:40)
+seu_r <- FindClusters(seu_r, resolution = 0.5)
+seu_r <- RunUMAP(seu_r, dims = 1:40)
+
+DimPlot(seu_r)
+seu_r$cart<-strsplit(Cells(seu_r), "_") %>% sapply("[[", 1)
+seu_r[["percent.mt"]] <- PercentageFeatureSet(seu_r, pattern = "^mt-")
+seu_r$logUMI<-log10(seu_r$nCount_RNA)
+seu_r$log_RNA<-log10(seu_r$nCount_RNA)
+
+## For QC presentation ##
+VlnPlot(seu_r, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_r, group.by = "cart")
+FeaturePlot_scCustom(seu_r, features = "percent.mt")
+####
+
+## Now filter by RNA count
+DefaultAssay(seu_r)<-"RNA"
+
+seu_sub_r <- subset(seu_r, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40) # This gives us 7,478 samples after filtering (from 23,841 before)
+seu_sub_r <- NormalizeData(seu_sub_r, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_sub_r <- FindVariableFeatures(seu_sub_r, selection.method = "vst", nfeatures = 3000)
+seu_sub_r <- ScaleData(seu_sub_r)
+seu_sub_r <- RunPCA(seu_sub_r, features = VariableFeatures(object = seu_sub_r), npcs = 50)
+#ElbowPlot(seu_sub_r, 50)
+seu_sub_r <- FindNeighbors(seu_sub_r, dims = 1:40)
+seu_sub_r <- FindClusters(seu_sub_r, resolution = 0.1)
+seu_sub_r <- RunUMAP(seu_sub_r, dims = 1:40)
+
+## Data output for QC ##
+DimPlot(seu_sub_r)
+VlnPlot(seu_sub_r, features = c("nFeature_RNA", "log_RNA", "logUMI", "percent.mt"), group.by = "cart", ncol = 4, pt.size = 0)
+DimPlot(seu_sub_r, group.by = "cart")
+FeaturePlot_scCustom(seu_sub_r, features = "percent.mt")
+#####
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - Re-embed wih Cart2", ".pdf")), width=6, height=6)
+DimPlot(seu_sub_r, group.by = "cart")
+dev.off()
+#####################
+
+
+## Normalize ADT Data ##
+DefaultAssay(seu_sub_r)<-"ADT"
+seu_sub_r <- NormalizeData(seu_sub_r, normalization.method = "CLR")
+seu_sub_r <- ScaleData(seu_sub_r)
+
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - Re-embed wih Cart2; res=0.2, dim=40", ".pdf")), width=6, height=6)
+DimPlot(seu_sub_r, cols = clus_cols36)
+dev.off()
+#####################
+
+
+#### Temporary Save Point Here ####
+#The RDS file below has removed multiplets / those without proper hashtags, as well as filter by RNA counts and mito genes.  
+#Also, 4 groups (female IFNy +/- and male IFNy +/-) have been added
+saveRDS(seu_sub_r, file.path(CDS_DIR, "250814_cart2_3_processed.RDS"))
+####
+  
+
+```
+
+```{r add Cart 3 with cart 2 re-embed - custom gene set and other ADT/RNA analysis}
+seu_sub_r<-readRDS(file.path(CDS_DIR, "250814_cart2_3_processed.RDS"))
+
+#Gene sets:
+#Grun D et al Nature 2015 (PMID: 26287467)
+#Haber AL et al Nature 2017 (PMID: 29144463)
+#Biton M et at. Cell 2018 (PMID: 30392957)
+#Hadjsombati MS et al. (Tuft cell) Immunity 2018 (PMID: 30021144)
+#Wang et al. JEM 2019 (PMID: 31753849)
+#Zhao Y et al. Mucosal Immunol 2020 (PMID: 31900405)
+#Yin J et al. Cell Discovery 2023 (https://www.nature.com/articles/s41421-023-00578-4)
+
+#Stem cell: 	Lgr5, Olfm4, Slc12a2, Ascl2, Axin2, Gkn3
+#Transit-amplifying cells (TA):	 Olfm4, Scl12a2, (nusap1 (found in human))
+#Goblet:	Muc2, Agr2, Clca3, Tff3, Ang4, Defa31
+#Tuft:		Dclk1, Trpm5, Gnat3 (α-gustducin), CD24a, Krt8, Krt18, Gfi1b, Il25, Ptgs1, Alox5, Ptprc, Chat , Rac2 (specific)
+#Paneth:	Mptx1 (specific), Ang4, Defa31, Defa17, Defa24, Defa22, Lyz1, Itln1 (Paneth in mouse)
+#Enteroendocrine: Reg4 (specific), Chga, Chgb, Tph1, Tac1, Neuro3, 
+#Enterocytes: Alpi, Apoa1, Apoa4, Fabp1, 
+#Partial_IEC: Top2a, Apol10a, Car4 (carbonic anhydrase IV), and Ube2c (a precursor intestinal cell marker), and these cells belonged to a stem cell cluster that has acquired partial IECs function
+
+
+custom_gene_sets <- list(
+  "Stem_Cell" = c("Lgr5", "Olfm4", "Slc12a2", "Ascl2", "Axin2", "Gkn3"),
+  "Transit_Amplifying_Cells" = c("Olfm4", "Scl12a2"), # nusap1 found in human
+  "Goblet" = c("Muc2", "Agr2", "Clca3", "Tff3", "Ang4", "Defa31"),
+  "Tuft" = c("Dclk1", "Trpm5", "Gnat3", "CD24a", "Krt8", "Krt18", "Gfi1b", "Il25", "Ptgs1", "Alox5", "Ptprc", "Chat", "Rac2"), # Gnat3 is α-gustducin, Rac2 specific
+  "Paneth" = c("Mptx1", "Ang4", "Defa31", "Defa17", "Defa24", "Defa22", "Lyz1", "Itln1"), # Mptx1 specific, Itln1 Paneth in mouse
+  "Enteroendocrine" = c("Reg4", "Chga", "Chgb", "Tph1", "Tac1", "Neuro3"), # Reg4 specific
+  "Enterocytes" = c("Alpi", "Apoa1", "Apoa4", "Fabp1"),
+  "Partial_IEC" = c("Top2a","Apol10a","Car4","Ube2c")
+)
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Stem_Cell_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Stem_Cell
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Stem_Cell")
+FeaturePlot_scCustom(seu_sub_r, features = "Stem_Cell1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Transit_Amplifying_Cells_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Transit_Amplifying_Cells
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Transit_Amplifying_Cells")
+FeaturePlot_scCustom(seu_sub_r, features = "Transit_Amplifying_Cells1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Goblet_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Goblet
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Goblet")
+FeaturePlot_scCustom(seu_sub_r, features = "Goblet1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Tuft_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Tuft
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Tuft")
+FeaturePlot_scCustom(seu_sub_r, features = "Tuft1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Paneth_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Paneth
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Paneth")
+FeaturePlot_scCustom(seu_sub_r, features = "Paneth1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Enteroendocrine_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Enteroendocrine
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Enteroendocrine")
+FeaturePlot_scCustom(seu_sub_r, features = "Enteroendocrine1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Enterocytes_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Enterocytes
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Enterocytes")
+FeaturePlot_scCustom(seu_sub_r, features = "Enterocytes1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Custom Partial_IEC_gp23", ".pdf")), width=6, height=6)
+bac<-custom_gene_sets$Partial_IEC
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "Partial_IEC")
+FeaturePlot_scCustom(seu_sub_r, features = "Partial_IEC1", label = F, label.size = 1, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+my_comparisons <- list( c("0","1"),c("0","2"),c("0","3"),c("0","4"),c("0","5"))
+
+DefaultAssay(seu_sub_r)<-"ADT"
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - I-A-I-E; cutoff=q95_gp23 ", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r, features = "I-A-I-E", max.cutoff = "q95") # Tufts
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - I-A-I-E (violin)_gp23" , ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r, features = c("I-A-I-E"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 10)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - H-2Kb; cutoff=q95_gp23", ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r, features = "H-2Kb", max.cutoff = "q95") # Tufts
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - H-2Kb (violin)_gp23" , ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r, features = c("H-2Kb"), group.by="seurat_clusters", col = clus_cols36, pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 12)
+dev.off()
+
+
+
+DefaultAssay(seu_sub_r)<-"RNA"
+pdf(file.path(FIG_DIR, paste0("[Revision] - H2-Aa; cutoff=q95_gp23" , ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r, features = "H2-Aa", max.cutoff = "q95") # 
+dev.off()
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - H2-Ab1; cutoff=q95_gp23" , ".pdf")), width=6, height=6)
+FeaturePlot_scCustom(seu_sub_r, features = "H2-Ab1", max.cutoff = "q95") # 
+dev.off()
+
+
+
+```
+
+```{r add Cart 3 with card 2 re-embed - GSEA}
+
+seu_sub_r<-readRDS(file.path(CDS_DIR, "250814_cart2_3_processed.RDS"))
+
+#---- GSEA analysis using fsgea ----#
+#https://crazyhottommy.github.io/scRNA-seq-workshop-Fall-2019/scRNAseq_workshop_3.html
+library(presto)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(fgsea)
+library(msigdbr)
+
+seu_sub_r.genes <- wilcoxauc(seu_sub_r, 'seurat_clusters')
+
+
+my_comparisons <- list( c("0","1"),c("0","2"),c("0","3"),c("0","4"),c("0","5"))
+
+
+# for GSEA, we need the information of all genes, seu_sub_r2rat is just too slow if we test
+# all 20,000 genes. instead let's try presto which performs a fast Wilcoxon rank sum test 
+
+#---- Ontology Gene Sets ----#
+m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>% dplyr::select(gs_name, gene_symbol) 
+fgsea_sets<- m_t2g %>% split(x = .$gene_symbol, f = .$gs_name) #Collects names of the genes of interest
+
+#----- Comparing gene sets -----#
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX",]$gene_symbol
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "MHC_CLASS_II_PROTEIN_COMPLEX")
+FeaturePlot_scCustom(seu_sub_r, features = "MHC_CLASS_II_PROTEIN_COMPLEX1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - GOCC_MHC_CLASS_II_PROTEIN_COMPLEX violin", ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 7)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - GOCC_MHC_CLASS_I_PROTEIN_COMPLEX", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOCC_MHC_CLASS_I_PROTEIN_COMPLEX",]$gene_symbol
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "MHC_CLASS_I_PROTEIN_COMPLEX")
+FeaturePlot_scCustom(seu_sub_r, features = "MHC_CLASS_I_PROTEIN_COMPLEX1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - GOCC_MHC_CLASS_I_PROTEIN_COMPLEX violin", ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r, features = c("MHC_CLASS_I_PROTEIN_COMPLEX1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 3)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION", ".pdf")), width=6, height=6)
+bac<-m_t2g[m_t2g$gs_name == "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION",]$gene_symbol
+DefaultAssay(seu_sub_r)<-"RNA"
+seu_sub_r<-AddModuleScore(seu_sub_r, features = list(bac), name = "ANTIGEN_PROCESSING_AND_PRESENTATION")
+FeaturePlot_scCustom(seu_sub_r, features = "ANTIGEN_PROCESSING_AND_PRESENTATION1", label = F, label.size = 2, pt.size = 1, max.cutoff = "q99")+scale_color_gradientn(colors = rna_cols)
+dev.off()
+
+## Revision Figure ##
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION violin", ".pdf")), width=6, height=6)
+VlnPlot(seu_sub_r, features = c("ANTIGEN_PROCESSING_AND_PRESENTATION1"), group.by="seurat_clusters", col = clus_cols36,  pt.size = 0) + stat_summary(fun = median, geom='point', size = 10, colour = "black", shape = 95) + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") + ylim(0, 1.2)
+dev.off()
+
+## Revision Figure ##
+DefaultAssay(seu_sub_r)<-"RNA"
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - Markers GSEA", ".pdf")), width=4, height=6)
+DotPlot(seu_sub_r, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1", "MHC_CLASS_I_PROTEIN_COMPLEX1", "ANTIGEN_PROCESSING_AND_PRESENTATION1")) + 
+  scale_x_discrete(labels = function(x) substr(x, 1, 15)) + 
+  RotatedAxis()
+dev.off()
+
+## Revision Figure ##
+DefaultAssay(seu_sub_r)<-"ADT"
+pdf(file.path(FIG_DIR, paste0("[Revision] - Cart3 Overlay - Markers ADT", ".pdf")), width=4, height=6)
+DotPlot(seu_sub_r, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()
+dev.off()
+
+```
+
+```{r add Cart 3 with card 2 re-embed - Propellar and DEGs}
+seu_sub_r<-readRDS(file.path(CDS_DIR, "250814_cart2_3_processed.RDS"))
+
+# Use propeller to compare cluster proportions between biological replicates
+# PMID: 36005887
+# Bioinformatics. 2022 Oct 15; 38(20): 4720–4726.
+# https://github.com/Oshlack/speckle
+#devtools::install_github("Oshlack/speckle")
+library(speckle)
+library(limma)
+library(ggplot2)
+library(ggthemes)
+library(scales)
+
+pdf(file.path(FIG_DIR, "[Revision] - Propeller_plots.pdf"), width = 3, height = 8)
+plotCellTypeProps(clusters=seu_sub_r$seurat_clusters, sample=seu_sub_r$cart)+ scale_fill_manual(values=clus_cols16)+ theme_classic()  #theme(axis.line.x=element_blank(),axis.ticks.x=element_blank(),axis.line.y=element_line(lineend="square"))
+dev.off()
+
+
+## DEGs using Enhanced Volcano Package ##
+#devtools::install_github('kevinblighe/EnhancedVolcano')
+library(EnhancedVolcano)
+
+DefaultAssay(seu_sub_r)<-"RNA"
+test0_2 <- FindMarkers(seu_sub_r, ident.1 = "0", ident.2 = "2")
+volcano_0_2 <- data.frame(cbind(row.names(test0_2), test0_2$p_val_adj<0.05, test0_2$avg_log2FC, test0_1$p_val))
+colnames(volcano_0_2) <- c("delabel", "diffexpressed", "log2FoldChange", "pvalue")
+
+volcano_0_2$pvalue[as.numeric(volcano_0_2$pvalue)==0] <- .Machine$double.xmin # insert the lowest p-value possible
+
+ggplot(data=volcano_0_2, aes(x=as.numeric(log2FoldChange), y=-log10(as.numeric(pvalue)), col=diffexpressed,label=delabel)) + geom_point() + theme_minimal() + geom_text()
+
+## Output DEGs ##
+write.csv(test0_2,file.path(FIG_DIR, paste0("[Revision] Cart 2v3 DEGs cluster 0v2.csv", ".csv")))
+###
+
+DefaultAssay(seu_sub_r)<-"RNA"
+
+neg_col <- "#00BFC4"
+pos_col <- "#F8766D"
+
+# Keep only DE rows and ensure numeric
+de_df <- volcano_0_2 %>%
+  mutate(
+    pvalue = as.numeric(pvalue),
+    log2FoldChange = as.numeric(log2FoldChange)
+  ) %>%
+  filter(diffexpressed == TRUE) %>%
+  # color by sign of log2FC (treat 0 as its own neutral if you prefer)
+  mutate(color = ifelse(log2FoldChange < 0, neg_col,
+                        ifelse(log2FoldChange > 0, pos_col, "grey70")))
+
+# Top 150 most significant DEGs
+top <- de_df %>%
+  arrange(pvalue) %>%
+  slice_head(n = 150)
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - DEG Cart 2v3 cluster 0v2 top 150", ".pdf")), width=6, height=6)
+ggplot(de_df, aes(x = log2FoldChange, y = -log10(pvalue), color = color)) +
+  geom_point(size = 1.8) +
+  ggrepel::geom_text_repel(
+    data = top,
+    aes(label = delabel),
+    max.overlaps = Inf,
+    box.padding = 0.4,
+    point.padding = 0.2,
+    segment.alpha = 0.5,
+    seed = 123
+  ) +
+  scale_color_identity(guide = "none") +
+  theme_bw() +
+  labs(x = "log2 fold-change", y = "-log10(p-value)")
+dev.off()
+
+# Top 30 most significant DEGs
+top <- de_df %>%
+  arrange(pvalue) %>%
+  slice_head(n = 30)
+
+pdf(file.path(FIG_DIR, paste0("[Revision] - DEG Cart 2v3 cluster 0v2 top 30", ".pdf")), width=6, height=6)
+ggplot(de_df, aes(x = log2FoldChange, y = -log10(pvalue), color = color)) +
+  geom_point(size = 1.8) +
+  ggrepel::geom_text_repel(
+    data = top,
+    aes(label = delabel),
+    max.overlaps = Inf,
+    box.padding = 0.4,
+    point.padding = 0.2,
+    segment.alpha = 0.5,
+    seed = 123
+  ) +
+  scale_color_identity(guide = "none") +
+  theme_bw() +
+  labs(x = "log2 fold-change", y = "-log10(p-value)")
+dev.off()
+
+
+pdf(file.path(FIG_DIR, "[Revision] - top DEGs.pdf"), width = 12, height = 16)
+FeaturePlot_scCustom(seu_sub_r, features = c("Dmbt1","Ubd","Saa1","Reg3b","Reg3g","Rnf186"), max.cutoff = "q99", colors_use = rna_cols, pt.size = 0.2)
+dev.off()
+
+
+
+```
+
+
