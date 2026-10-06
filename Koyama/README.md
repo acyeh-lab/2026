@@ -149,36 +149,6 @@ Koyama/
 
 ---
 
-## Reproducibility, stated plainly
-
-From the **deposited matrices**, all four main analyses reproduce the published
-objects **100.00 % cell-for-cell** — identical cell sets and identical
-cluster-size vectors. Fig S3 reproduces by two independent routes (the four
-per-tag matrices, and the Combined matrix split by `Sample_Tag_Calls.csv`),
-which give byte-identical results.
-
-From **raw FASTQ**, Fig 7 / S11 does **not** reproduce: Louvain at resolution
-0.5 sits on a community boundary, so a 0.001 % shift in molecule counts yields 7
-ISC clusters instead of 9 (the cell set is essentially unchanged, Jaccard
-0.997). Exp80's FASTQ→matrix step cannot be version-matched — BD never published
-the v1.8 targeted CWL.
-
-**Two corrections to the published Methods**, both found by running the code:
-
-1. The mitochondrial filter is **`percent.mt < 40` for both** the IEC and ISC
-   analyses. The Methods originally said 25 % for the IEC analysis and the Rmd
-   carried a stale `25`; both were corrected. Filtering at 25 keeps 6,412 cells,
-   where the published Fig 4 object holds **8,032 in 7 clusters** — and the
-   corrected Rmd reproduces that object cell-for-cell.
-2. The R version is **4.4.0**, not 4.0.3. All five published Seurat objects
-   record `SeuratObject` 5.0.2 internally, which requires R ≥ 4.1.0.
-
-Finally: **UMAP is defined only up to rotation and reflection**, so an embedding
-may appear mirrored relative to the published panel. Fig S3A reproduces
-horizontally mirrored. This is expected, not a defect.
-
----
-
 ## Licence
 
 MIT — see `LICENSE`. Please cite both the article and the Zenodo archive; see
