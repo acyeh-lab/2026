@@ -30,57 +30,71 @@ scRNA-seq figure in the paper.
 
 ---
 
-## The executable scripts, and the figures they generate
+## The executable R Markdown files, the figures they generate, and what they read
 
 Transcribed from the notebooks above, path-parameterised, and verified to
-reproduce the published objects cell-for-cell.
+reproduce the published objects cell-for-cell. These are the ones to run.
 
-| Manuscript figure | Panels | Script | Experiment |
-|---|---|---|---|
-| **Fig 4B–D** | 22 | `Exp160/01_fig4_figS6.R` | Exp160 |
-| **Fig S6A–E** | 17 | `Exp160/01_fig4_figS6.R` | Exp160 |
-| **Fig S7B–E** | 26 | `Exp160/02_figS7.R` | Exp160 |
-| **Fig S10A–D** | 7 | `Exp649/01_figS10_qc.R` | Exp649 |
-| **Fig 7B–F + Fig S11A–C** | 39 | `Exp649/02_fig7_figS11.R` | Exp649 |
-| **Fig S3A–C** | 5 | `Exp80/02_figS3_from_deposit.R` | Exp80 |
+| Manuscript figure | Panels | R Markdown | Reads (processed file) | GEO sample |
+|---|---|---|---|---|
+| **Fig 4B–D** | 22 | `Exp160/01_fig4_figS6.Rmd` | `cartridge1_RSEC_MolsPerCell.csv`<br>`cartridge2_RSEC_MolsPerCell.csv` | GSM10065191<br>GSM10065192 |
+| **Fig S6A–E** | 17 | `Exp160/01_fig4_figS6.Rmd` | *(same as above — one clustering)* | GSM10065191<br>GSM10065192 |
+| **Fig S7B–E** | 26 | `Exp160/02_figS7.Rmd` | `cartridge2_RSEC_MolsPerCell.csv`<br>`cartridge3_RSEC_MolsPerCell.csv` | GSM10065192<br>GSM10065193 |
+| **Fig S10A–D** | 7 | `Exp649/01_figS10_qc.Rmd` | `Cart1_RSEC_MolsPerCell.csv`<br>`Cart2_RSEC_MolsPerCell.csv` | GSM10065194<br>GSM10065195 |
+| **Fig 7B–F + Fig S11A–C** | 39 | `Exp649/02_fig7_figS11.Rmd` | `all_cells_processed.RDS`<br>*(written by `01_figS10_qc.Rmd`)* | — |
+| **Fig S3A–C** | 5 | `Exp80/02_figS3_from_deposit.Rmd` | the four `*_SampleTag0{5,6,7,8}_mm_RSEC_MolsPerCell.csv`<br>**or** `Combined_…_RSEC_MolsPerCell.csv` + `…_Sample_Tag_Calls.csv` | GSM10065196 |
 
 **124 panels total** (122 PDF + 2 PNG); 8 are QC plots, not manuscript panels.
 
-Fig 7 and Fig S11 are one row because they cannot be separated: 11 panels are
-Fig 7 only, 10 are Fig S11 only, and **18 are labelled as spanning both**. Any
-split would be invented. Likewise `01_fig4_figS6.R` produces Fig 4 and Fig S6
-from a single clustering, and cannot be split without re-clustering.
+Each file is chunked by figure, with an H2 heading and a navigable table of
+contents in the knitted HTML, so a given panel can be found, re-run and
+commented on in isolation. For example `01_fig4_figS6.Rmd` carries chunks
+`sec3-figure-4b`, `sec4-figure-4c-msigdb-c5-module-scores` and
+`sec7-figure-s6c-isc-progenitor-markers`.
 
-### Run order
+Two figures cannot be given their own file. Fig 7 and Fig S11 share one row
+because 11 panels are Fig 7 only, 10 are Fig S11 only and **18 are labelled as
+spanning both**; likewise `01_fig4_figS6.Rmd` produces Fig 4 and Fig S6 from a
+single clustering. Splitting either would require re-clustering.
 
-```
-Exp160:  01_fig4_figS6.R   and   02_figS7.R        independent
-Exp649:  01_figS10_qc.R   ──►   02_fig7_figS11.R   SEQUENTIAL
-Exp80:   02_figS3_from_deposit.R                   standalone
-```
+### Notes on the inputs
 
-`Exp649/02_fig7_figS11.R` does **not** read the matrices — it reads
-`all_cells_processed.RDS` written by `01_figS10_qc.R`.
-
----
-
-## Which processed file each script reads
-
-| Script | Reads | GEO sample |
-|---|---|---|
-| `Exp160/01_fig4_figS6.R` | `cartridge1_RSEC_MolsPerCell.csv`, `cartridge2_RSEC_MolsPerCell.csv` | GSM10065191, GSM10065192 |
-| `Exp160/02_figS7.R` | `cartridge2_RSEC_MolsPerCell.csv`, `cartridge3_RSEC_MolsPerCell.csv` | GSM10065192, GSM10065193 |
-| `Exp649/01_figS10_qc.R` | `Cart1_RSEC_MolsPerCell.csv`, `Cart2_RSEC_MolsPerCell.csv` | GSM10065194, GSM10065195 |
-| `Exp649/02_fig7_figS11.R` | `all_cells_processed.RDS` (from script 1) | — |
-| `Exp80/02_figS3_from_deposit.R` | the four `*_SampleTag0{5,6,7,8}_mm_RSEC_MolsPerCell.csv` | GSM10065196 |
-
-`cartridge2` is read by **both** Exp160 scripts and re-clustered separately in
-each — that is intentional, not duplication.
+`cartridge2` is read by **both** Exp160 files and re-clustered separately in
+each — intentional, not duplication.
 
 **RSEC, not DBEC.** WTA Rhapsody applies RSEC only; the `_DBEC_` files are
 deposited for completeness and read by nothing here. Exp80 is a *targeted*
 panel, where DBEC would be meaningful — but the published analysis read RSEC, so
-RSEC is what these scripts use.
+RSEC is what these files use.
+
+**Fig S3 is derived two independent ways** and the two agree byte-for-byte: from
+the four deposited per-tag matrices, and from the deposited Combined matrix
+split by `Sample_Tag_Calls.csv`.
+
+A GEO download is flat; these files expect per-cartridge directories
+(`cartridge1/`…, and `Cart1/`/`Cart2/` with a capital C for Exp649) under
+`$ADY3001_DATA`. `tools/unpack_geo_download.sh` builds that tree.
+
+### Run order
+
+```
+Exp160:  01_fig4_figS6.Rmd   and   02_figS7.Rmd        independent
+Exp649:  01_figS10_qc.Rmd   ──►   02_fig7_figS11.Rmd   SEQUENTIAL
+Exp80:   02_figS3_from_deposit.Rmd                     standalone
+```
+
+`Exp649/02_fig7_figS11.Rmd` does **not** read the matrices — it reads
+`all_cells_processed.RDS` written by `01_figS10_qc.Rmd`, so that file runs first.
+
+### Knitting
+
+The code locates the package root by walking up for a `.ady3001_root` marker, so
+knit with `knit_root_dir` set to that root, or run from a directory beneath it.
+Results are written to `$ADY3001_OUT`, default `./ady3001_output`.
+
+```r
+rmarkdown::render("Exp649/01_figS10_qc.Rmd", knit_root_dir = "<package root>")
+```
 
 ---
 
@@ -114,29 +128,30 @@ version-*drift* test rather than a version-matched run.
 
 ## Layout
 
+One subfolder per experiment; each holds its executable R Markdown, its original
+notebook, and its version manifest.
+
 ```
 Koyama/
-  README.md                     this file
-  r_packages.yml                all 195 packages, for install
-  environment.yml               conda environment
-  common/                       REQUIRED — shared by all three experiments
-    config.R                      path resolution
-    load_bd.R                     BD matrix loader
-  Exp160/                       ileal IEC, 3 cartridges, BD 1.9.1
-    Exp160_Final.Rmd
-    Exp160_AYEH_241108_FINAL.Rmd
-    01_fig4_figS6.R
-    02_figS7.R
+  README.md                        this file
+  r_packages.yml                   all 195 packages, for install
+  environment.yml                  conda environment
+  common/                          REQUIRED - shared by all three experiments
+    config.R                         path resolution
+    load_bd.R                        BD matrix loader
+  Exp160/                          ileal IEC, 3 cartridges, BD 1.9.1
+    01_fig4_figS6.Rmd                Fig 4B-D, S6A-E   <- run this
+    02_figS7.Rmd                     Fig S7B-E         <- run this
+    Exp160_Final.Rmd                 the original notebook
     Exp160_versions.yaml
-  Exp649/                       ileal IEC, IFNgR cKO multiplex, 2 cartridges, BD 1.10.1
-    Exp649_Final.Rmd
-    Exp649_AYEH_241104_FINAL.Rmd
-    01_figS10_qc.R
-    02_fig7_figS11.R
+  Exp649/                          ileal IEC, IFNgR cKO multiplex, 2 cartridges, BD 1.10.1
+    01_figS10_qc.Rmd                 Fig S10A-D        <- run this FIRST
+    02_fig7_figS11.Rmd               Fig 7B-F, S11A-C  <- then this
+    Exp649_Final.Rmd                 the original notebook
     Exp649_versions.yaml
-  Exp80/                        ileal Marilyn donor CD4+ T cells, targeted panel, BD 1.8
-    241221_Marilyn.Rmd
-    02_figS3_from_deposit.R
+  Exp80/                           ileal Marilyn donor CD4+ T cells, targeted panel, BD 1.8
+    02_figS3_from_deposit.Rmd        Fig S3A-C         <- run this
+    241221_Marilyn.Rmd               the original notebook
     Exp80_versions.yaml
 ```
 

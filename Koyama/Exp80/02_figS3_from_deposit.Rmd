@@ -1,0 +1,242 @@
+---
+title: "Exp80 - Figure S3, from the GEO deposit"
+author: "Koyama et al., Science Immunology (ady3001)"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    code_folding: show
+---
+
+<!-- GENERATED from 02_figS3_from_deposit.R by Zenodo/manual_build/r_to_rmd.py.
+     Every line of R below is byte-identical to that script, which is the
+     version verified to reproduce the published objects cell-for-cell.
+     Re-generate rather than hand-editing, or re-verify if you do edit. -->
+
+Exp80 - fig. S3, REBUILT FROM THE GEO DEPOSIT ONLY
+
+01_figS3.R reads the lab copy of the Seven Bridges output, which holds all
+EIGHT sample-tag folders, builds one object from all 4,544 + 6,051 cells and
+only then subsets to LP + EL. The GEO deposit carries FOUR per-tag matrices
+(SampleTag05-08 = LP, LP, EL, EL) plus the Combined matrix and the sample-tag
+calls. This script asks the only question that matters for the deposit:
+
+  can fig. S3 be regenerated from the deposited files alone?
+
+It answers it twice, independently:
+  ROUTE A  the four deposited per-tag matrices, used directly
+  ROUTE B  the deposited Combined matrix + Sample_Tag_Calls.csv, split back
+           into per-tag matrices -- which must equal route A byte for byte
+
+and then compares the resulting fig. S3B dot-plot values against the full
+eight-tag run in out_figS3/figS3B_dotplot_values.csv.
+
+Usage: Rscript 02_figS3_from_deposit.R
+
+> **Knitting this file.** The code locates the package root by walking up
+> for a `.ady3001_root` marker, so knit with `knit_root_dir` set to the
+> package root, or run from a directory beneath it. Point `$ADY3001_DATA`
+> at an unpacked GEO download; `tools/unpack_geo_download.sh` builds that
+> tree. Results are written to `$ADY3001_OUT`, default `./ady3001_output`.
+
+<!-- original shebang: `#!/usr/bin/env Rscript` -->
+
+## path resolution (Zenodo package)
+
+These lines replace the hardcoded lab paths of the working copy. Every other
+change to this file is also path-only; no analysis line differs from the
+script that produced the published figures. The complete diff against the
+working copy is shipped at 05_verification/path_rewrite.diff - read it rather
+than taking this comment's word for it.
+
+```{r path-resolution}
+local({
+  a <- commandArgs(FALSE)
+  f <- sub("^--file=", "", a[grep("^--file=", a)])
+  d <- if (length(f)) dirname(normalizePath(f[1])) else normalizePath(getwd())
+  repeat {
+    if (file.exists(file.path(d, ".ady3001_root"))) break
+    p <- dirname(d)
+    if (p == d) stop("cannot locate the package root (.ady3001_root marker)")
+    d <- p
+  }
+  assign("PKG", d, envir = .GlobalEnv)
+})
+source(file.path(PKG, "02_figure_scripts", "common", "config.R"))
+
+suppressPackageStartupMessages({
+  library(Seurat); library(ggplot2); library(dplyr); library(Matrix)
+  library(scCustomize); library(data.table)
+})
+
+CR   <- Sys.getenv("ADY3001_DATA", file.path(PKG, "data"))
+DATA <- file.path(CR, "Exp80", "data")
+OUT  <- file.path(OUT_ROOT, "Exp80", "out_figS3_deposit")
+FIG  <- file.path(OUT, "figs")
+for (d in c(OUT, FIG)) {
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(d)) stop("could not create ", d)
+}
+sink(file.path(OUT, "figS3_deposit_report.txt"), split = TRUE)
+cat("=== Exp80 fig. S3 -- rebuilt from the GEO deposit only ===\n")
+cat("deposit root:", DATA, "\n")
+cat("R      :", R.version.string, "\n")
+cat("Seurat :", as.character(packageVersion("Seurat")), "\n\n")
+
+read_bd <- function(f) t(as.matrix(data.table::fread(f), rownames = 1))
+```
+
+## ROUTE A: the four deposited per-tag matrices
+
+```{r route-a-the-four-deposited-per-tag-matrices}
+cat("---- ROUTE A: deposited per-tag matrices ----\n")
+tags    <- sprintf("SampleTag%02d", 5:8)
+organ_of <- c(SampleTag05 = "LP", SampleTag06 = "LP",
+              SampleTag07 = "EL", SampleTag08 = "EL")   # 241221_Marilyn.Rmd line 100
+pathA <- vapply(tags, function(t) {
+  p <- file.path(DATA, paste0("mRNA-ST-GCTACGCT_", t, "_mm"),
+                 paste0("mRNA-ST-GCTACGCT_", t, "_mm_RSEC_MolsPerCell.csv"))
+  if (!file.exists(p)) stop("deposited file missing: ", p)
+  p
+}, character(1))
+datA <- lapply(pathA, read_bd)
+for (i in seq_along(datA))
+  cat(sprintf("   %s  %5d cells  %4d features\n", tags[i], ncol(datA[[i]]), nrow(datA[[i]])))
+```
+
+## ROUTE B: Combined matrix + Sample_Tag_Calls
+
+```{r route-b-combined-matrix-sample-tag-calls}
+cat("\n---- ROUTE B: Combined matrix split by Sample_Tag_Calls ----\n")
+comb  <- read_bd(file.path(DATA, "Combined_mRNA-ST-GCTACGCT_RSEC_MolsPerCell.csv"))
+calls <- data.table::fread(file.path(DATA, "mRNA-ST-GCTACGCT_Sample_Tag_Calls.csv"))
+cat("   Combined:", ncol(comb), "cells,", nrow(comb), "features\n")
+cat("   tag calls:\n"); print(table(calls$Sample_Tag))
+datB <- lapply(tags, function(t) {
+  ## Sample_Tag_Calls spells the tag "SampleTag05_mm", not "SampleTag05".
+  idx <- as.character(calls$Cell_Index[calls$Sample_Tag == paste0(t, "_mm")])
+  comb[, intersect(colnames(comb), idx), drop = FALSE]
+})
+names(datB) <- tags
+for (t in tags) cat(sprintf("   %s  %5d cells (from Combined)\n", t, ncol(datB[[t]])))
+
+cat("\n---- do the two routes agree? ----\n")
+agree <- TRUE
+for (i in seq_along(tags)) {
+  a <- datA[[i]]; b <- datB[[tags[i]]]
+  same_cells <- setequal(colnames(a), colnames(b))
+  same_feats <- identical(sort(rownames(a)), sort(rownames(b)))
+  same_vals  <- same_cells && same_feats &&
+                identical(a[rownames(a), sort(colnames(a))],
+                          b[rownames(a), sort(colnames(b))])
+  cat(sprintf("   %s  cells %s  features %s  values %s\n", tags[i],
+              ifelse(same_cells, "IDENTICAL", "DIFFER"),
+              ifelse(same_feats, "IDENTICAL", "DIFFER"),
+              ifelse(same_vals,  "IDENTICAL", "DIFFER")))
+  agree <- agree && same_vals
+}
+cat("   => route B reconstructs route A exactly:", agree, "\n\n")
+```
+
+## the analysis, exactly as 01_figS3.R / 241221_Marilyn.Rmd runs it
+
+```{r the-analysis-exactly-as-01-figs3-r-241221-marilyn-rmd-runs-it}
+dat  <- datA
+dat2 <- lapply(dat, function(m) {
+  rownames(m) <- sapply(strsplit(rownames(m), "\\|"), "[[", 1); m })
+mat  <- Matrix(do.call(cbind, dat2), sparse = TRUE)
+colnames(mat) <- make.unique(colnames(mat))
+meta <- data.frame(
+  cell.names = colnames(mat),
+  sample_no  = unlist(lapply(seq_along(tags), function(x) rep(tags[x], ncol(dat[[x]])))),
+  row.names  = colnames(mat))
+meta$sample <- factor(unname(organ_of[meta$sample_no]), levels = c("LP", "EL"))
+cat("cells per tag:\n"); print(table(meta$sample_no))
+cat("\ncells per compartment:\n"); print(table(meta$sample))
+
+genes <- data.frame(
+  id              = sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 2),
+  loc             = sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 3),
+  gene_short_name = sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 1),
+  row.names       = make.unique(sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 1)))
+rownames(genes) <- genes$id
+rownames(mat)   <- rownames(genes)
+
+seu <- CreateSeuratObject(mat, meta.data = meta)
+cat("\ncells (LP + EL, the only tags deposited):", ncol(seu), "\n")
+cat("  LP:", sum(seu$sample == "LP"), "  EL:", sum(seu$sample == "EL"), "\n")
+cat("genes:", nrow(seu), "\n\n")
+
+seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(seu, nfeatures = 3000)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu))
+seu <- FindNeighbors(seu, dims = 1:20)
+seu <- FindClusters(seu, resolution = 1)
+seu <- RunUMAP(seu, dims = 1:20)
+rownames(seu) <- genes$gene_short_name
+
+pdf(file.path(FIG, "figS3A_UMAP_by_sample.pdf"), width = 7, height = 5)
+print(DimPlot(seu, group.by = "sample")); dev.off()
+png(file.path(FIG, "figS3A_UMAP_by_sample.png"), width = 1400, height = 1050, res = 150)
+print(DimPlot(seu, group.by = "sample")); dev.off()
+
+dot_genes <- c("Tbx21","Rorc","Ifng","Il17a","Nkg7","Gzmb","Gzma","Fasl","Tnfsf10")
+dp <- scCustomize::DotPlot_scCustom(seu, features = rev(dot_genes),
+                                    group.by = "sample", flip_axes = TRUE)
+pdf(file.path(FIG, "figS3B_dotplot.pdf"), width = 7, height = 6); print(dp); dev.off()
+png(file.path(FIG, "figS3B_dotplot.png"), width = 1400, height = 1200, res = 150)
+print(dp); dev.off()
+
+featg <- c("Nkg7","Prf1","Gzmb","Gzma","Gzmk","Gzmm","Ifng","Il17a","Il17f",
+           "Tnfsf10","Fasl","Tbx21","Rorc")
+pdf(file.path(FIG, "figS3C_featureplots.pdf"), width = 6, height = 6)
+for (g in featg) if (g %in% rownames(seu)) print(FeaturePlot_scCustom(seu, g))
+dev.off()
+
+d <- dp$data
+write.csv(d, file.path(OUT, "figS3B_dotplot_values.csv"), row.names = FALSE)
+```
+
+## compare against the full eight-tag run
+
+```{r compare-against-the-full-eight-tag-run}
+cat("---- fig. S3B: deposit-only vs the full eight-tag run ----\n")
+ref_f <- Sys.getenv("ADY3001_FIGS3_REF",
+                    file.path(OUT_ROOT, "Exp80", "out_figS3",
+                              "figS3B_dotplot_values.csv"))
+if (!file.exists(ref_f)) {
+  cat("   reference not found:", ref_f, "\n")
+  cat("   This comparison needs the EIGHT-tag run, which uses data that\n")
+  cat("   is NOT on GEO (SampleTag01-04). It is expected to be absent\n")
+  cat("   outside the Hill Lab. Routes A and B above are the\n")
+  cat("   reader-reproducible check; this one is supplementary.\n")
+} else {
+  ref <- read.csv(ref_f)
+  key <- function(x) paste(x$features.plot, x$id)
+  m <- merge(data.frame(k = key(d),   new_scaled = d$avg.exp.scaled,   new_pct = d$pct.exp),
+             data.frame(k = key(ref), ref_scaled = ref$avg.exp.scaled, ref_pct = ref$pct.exp),
+             by = "k")
+  m$d_scaled <- m$new_scaled - m$ref_scaled
+  m$d_pct    <- m$new_pct    - m$ref_pct
+  cat(sprintf("   %d of %d dots matched by gene x group\n", nrow(m), nrow(d)))
+  cat(sprintf("   max |delta avg.exp.scaled| = %.3g\n", max(abs(m$d_scaled))))
+  cat(sprintf("   max |delta pct.exp|        = %.3g\n", max(abs(m$d_pct))))
+  cat(sprintf("   direction (LP vs EL) preserved for all 9 genes: %s\n",
+      {
+        dir_of <- function(df) {
+          s <- reshape(df[, c("features.plot","id","avg.exp.scaled")],
+                       idvar = "features.plot", timevar = "id", direction = "wide")
+          sign(s[[2]] - s[[3]])
+        }
+        identical(dir_of(d), dir_of(ref))
+      }))
+  print(m[order(-abs(m$d_scaled)), ][1:5, ])
+  write.csv(m, file.path(OUT, "figS3B_deposit_vs_full.csv"), row.names = FALSE)
+}
+
+saveRDS(seu, file.path(OUT, "exp80_figS3_deposit.RDS"))
+cat("\nsessionInfo:\n"); print(sessionInfo())
+cat("\n=== DONE ===\n")
+```
