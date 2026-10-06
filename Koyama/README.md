@@ -28,29 +28,6 @@ scRNA-seq figure in the paper.
 | `Exp649/Exp649_Final.Rmd` | A. Yeh | 829 / 10 | **Fig 7B–F**, **Fig S10A–D**, **Fig S11A–C** | Exp649 |
 | `Exp80/241221_Marilyn.Rmd` | S. Furlan | 155 / 6 | **Fig S3A–C** | Exp80 |
 
-Two earlier working notebooks are included as the historical record. Neither
-produces a figure the three above do not:
-
-| R Markdown | Lines / chunks | What it is |
-|---|---|---|
-| `Exp160/Exp160_AYEH_241108_FINAL.Rmd` | 489 / 7 | The 2024-11-08 ancestor of `Exp160_Final.Rmd`. Fig 4 / S6 only — pre-dates the Fig S7 revision. |
-| `Exp649/Exp649_AYEH_241104_FINAL.Rmd` | 3,200 / 59 | The full working notebook. Contains `Exp649_Final.Rmd`'s 10 chunks as chunks 1–10, plus 49 of exploratory analysis. |
-
-> **The `_FINAL` suffix means opposite things in the two pairs**, which is the
-> most confusing thing about this directory. For **Exp160**, `Exp160_Final.Rmd`
-> is the *newer, larger* file and `…_AYEH_241108_FINAL.Rmd` is its ancestor. For
-> **Exp649** it is reversed: `…_AYEH_241104_FINAL.Rmd` is the big working
-> notebook and `Exp649_Final.Rmd` is the trimmed version. Go by the chunk
-> counts above, not the filenames.
-
-### Read this before running any `.Rmd`
-
-They are deposited as the **historical record** and **will not knit from a clean
-session** — see `KNOWN_ISSUES.md`. In short: `order_cells()` blocks on an
-interactive prompt, `test0_1` is never assigned, and `saveRDS` writes straight
-into the analysis directory, so knitting in place overwrites published objects.
-**Use the `.R` scripts to execute anything.**
-
 ---
 
 ## The executable scripts, and the figures they generate
