@@ -11,17 +11,9 @@ Analysis code for:
 | **Data** | NCBI GEO [GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009) |
 | **Code archive** | Zenodo DOI `<concept DOI — to be added>` |
 | **Platform** | BD Rhapsody WTA + AbSeq (Exp160, Exp649); BD Rhapsody targeted panel (Exp80) |
-| **Supersedes** | [`acyeh-lab/2024/Koyama/scseq`](https://github.com/acyeh-lab/2024/tree/main/Koyama/scseq) |
 
 Everything here regenerates from the **processed expression matrices deposited
-in GEO** — raw FASTQ is not required. Three independent single-cell experiments
-back the seven scRNA-seq figures in the paper, one subfolder each.
-
-> **Why this replaces the repository cited in the Methods.** The published
-> Methods point at `acyeh-lab/2024/Koyama/scseq`, which holds three files and is
-> incomplete: its `Exp160_Final.Rmd` is the **pre-revision** version (7 chunks,
-> not 17), so it is missing all of **Figure S7** and **Figure S6C**, and the
-> Figure S3 code was never pushed at all.
+in GEO**. Three independent single-cell experiments comprise seven figures in the paper, one subfolder for each experiment.
 
 ---
 
