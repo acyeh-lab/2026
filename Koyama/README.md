@@ -4,7 +4,7 @@ Analysis code for:
 
 > **IFN-γ-driven MHC class II expression by intestinal epithelial cells dictates
 > local cytolytic Th1 differentiation and intestinal stem cell loss**
-> Koyama M, Yeh AC, Haeseleer F, Ensbey KS, Bhise SS, Schuster IS, Legg SRW, Nelson E, Sekiguchi T, Nemychenkov NS, Takahashi S, Zhang P, Minnie SA, Hippe DS, Degli-Esposti MA, CLouston AD, Furlan SN, Hill GR. *Science Immunology*
+> Koyama M, Yeh AC, Haeseleer F, Ensbey KS, Bhise SS, Schuster IS, Legg SRW, Nelson E, Sekiguchi T, Nemychenkov NS, Takahashi S, Zhang P, Minnie SA, Hippe DS, Degli-Esposti MA, Clouston AD, Furlan SN, Hill GR. *Science Immunology*
 
 | | |
 |---|---|
