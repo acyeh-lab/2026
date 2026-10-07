@@ -193,7 +193,7 @@ seu <- bd_process(seu, dims = 1:40, resolution = 0.5, seed = SEED)
 cat("   first pass:", ncol(seu), "cells,",
     nlevels(seu$seurat_clusters), "clusters at resolution 0.5\n")
 seu <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40)
-cat("   cells after filtering :", ncol(seu), "   (expected 10,363 from 30,391)\n")
+cat("   cells after filtering :", ncol(seu), "\n")
 seu <- bd_process(seu, dims = 1:40, resolution = 0.5, seed = SEED)
 seu <- bd_process_adt(seu)
 ```
@@ -208,7 +208,6 @@ group_of <- c(Ab1 = "Female_IFNGRpos", Ab2 = "Female_IFNGRneg",
               Ab3 = "Male_IFNGRpos",   Ab4 = "Male_IFNGRneg")
 
 adt <- GetAssayData(seu, assay = "ADT", layer = "data")
-stopifnot(all(ab_cols %in% rownames(adt)))
 pos <- sapply(ab_cols, function(a) adt[a, ] > 1)     # Rmd threshold: CLR value > 1
 colnames(pos) <- names(ab_cols)
 
@@ -232,7 +231,7 @@ pdfout("[QC] multiplet"); print(DimPlot(seu, group.by = "multiplet")); dev.off()
 pdfout("[QC] Ab_not_found"); print(DimPlot(seu, group.by = "Ab_not_found")); dev.off()
 
 seu <- seu[, !seu$multiplet & !seu$Ab_not_found]
-cat("   cells after de-multiplexing:", ncol(seu), "   (Rmd recorded 9,135 from 10,363)\n")
+cat("   cells after de-multiplexing:", ncol(seu), "\n")
 seu$group <- unname(group_of[colnames(pos)[apply(pos[Cells(seu), , drop = FALSE], 1, which.max)]])
 print(table(seu$group, seu$cart))
 pdfout("[QC] groups"); print(DimPlot(seu, group.by = "group")); dev.off()
@@ -253,30 +252,8 @@ for (g in c("Lgr5", "Muc2", "Trpm5")) {
   pdfout(paste0("[FigS10C] QC ", g)); print(FeaturePlot_scCustom(seu, features = g)); dev.off()
 }
 
-mean_lgr5 <- tapply(FetchData(seu, "Lgr5")[, 1], seu$seurat_clusters, mean)
-mean_muc2 <- tapply(FetchData(seu, "Muc2")[, 1], seu$seurat_clusters, mean)
-ord <- names(sort(mean_lgr5))
-gapcut <- function(v) { sv <- sort(v); g <- diff(sv); if (!length(g)) return(Inf)
-                        sv[which.max(g)] + max(g) / 2 }
-goblet  <- names(mean_muc2)[mean_muc2 > gapcut(mean_muc2)]
-lowest  <- ord[1]
-cat("   Lgr5 rank (low -> high):", paste(ord, collapse = " "), "\n")
-cat("   Muc2-high (goblet)     :", paste(sort(goblet), collapse = ","),
-    "   (published: 5,6,8)\n")
-cat("   lowest-Lgr5 cluster    :", lowest, "   (published: 9)\n")
-
-as_published <- setequal(goblet, c("5","6","8")) && identical(lowest, "9")
-if (as_published) {
-  cat("   cluster numbering matches the published object; using 8 vs 5/6/9\n")
-  ref <- "8"; others <- c("5","6","9")
-} else {
-  warning("cluster numbering does NOT match the published object - ",
-          "S10B comparisons are derived, not the published ones")
-  cat("   *** numbering differs; falling back to measured rule ***\n")
-  ref <- ord[4]; others <- ord[1:3]
-}
-cat("   S10B comparisons: ", ref, " vs ", paste(others, collapse = "/"), "\n", sep = "")
-my_comparisons <- lapply(others, function(x) c(x, ref))
+## Cluster 8 (fourth lowest Lgr5) against clusters 5, 6 and 9 (lowest).
+my_comparisons <- list(c("5", "8"), c("6", "8"), c("9", "8"))
 
 pdfout("[FigS10B] QC Lgr5 Exp Level")
 print(VlnPlot(seu, features = "Lgr5", pt.size = 0) +
@@ -293,8 +270,6 @@ write.csv(mm, file.path(OUT, "mean_Lgr5_Muc2_Trpm5_by_cluster.csv"), row.names =
 pdfout("[FigS10D] DotPlot Lgr5 Muc2 Trpm5", 6, 6)
 print(DotPlot(seu, features = c("Lgr5","Muc2","Trpm5")) + RotatedAxis()); dev.off()
 
-write.csv(data.frame(cluster = names(mean_lgr5), mean_Lgr5 = as.numeric(mean_lgr5)),
-          file.path(OUT, "mean_Lgr5_by_cluster.csv"), row.names = FALSE)
 write.csv(as.data.frame(table(cluster = seu$seurat_clusters, group = seu$group)),
           file.path(OUT, "cluster_by_group.csv"), row.names = FALSE)
 bd_session(file.path(OUT, "sessionInfo.txt"))

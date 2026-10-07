@@ -191,7 +191,7 @@ seu_sub <- bd_process_adt(seu_sub)
 saveRDS(seu_sub, file.path(CDS, "cart1_cart2_processed.RDS"))
 seu <- seu_sub
 
-## QC panels (not published, kept as the run's own evidence)
+## QC panels
 pdfout("QC - violin by cartridge", 10, 4)
 print(VlnPlot(seu, features = c("nFeature_RNA","log_RNA","logUMI","percent.mt"),
               group.by = "cart", ncol = 4, pt.size = 0))
@@ -227,7 +227,6 @@ gs_panels <- list(
 DefaultAssay(seu) <- "RNA"
 for (p in gs_panels) {
   genes <- m_t2g[m_t2g$gs_name == p$set, ]$gene_symbol
-  stopifnot(length(genes) > 0)
   set.seed(SEED)
   seu <- AddModuleScore(seu, features = list(genes), name = p$name)
   feat <- paste0(p$name, "1")

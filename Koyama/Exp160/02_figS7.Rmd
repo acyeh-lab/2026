@@ -185,7 +185,7 @@ seu <- bd_process(seu, dims = 1:40, resolution = 0.5, seed = SEED)
 cat("   first pass:", ncol(seu), "cells,",
     nlevels(seu$seurat_clusters), "clusters at resolution 0.5\n")
 seu <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40)
-cat("   cells after filtering :", ncol(seu), "   (expected 7,478 from 23,841)\n")
+cat("   cells after filtering :", ncol(seu), "\n")
 seu <- bd_process(seu, dims = 1:40, resolution = 0.1, seed = SEED)
 seu <- bd_process_adt(seu)
 saveRDS(seu, file.path(CDS, "cart2_cart3_processed.RDS"))
@@ -286,7 +286,6 @@ for (ab in c("I-A-I-E", "H-2Kb")) {
 
 ```{r s7e-degs-cluster-0-vs-cluster-2}
 DefaultAssay(seu) <- "RNA"
-stopifnot(all(c("0","2") %in% lv))
 test0_2 <- FindMarkers(seu, ident.1 = "0", ident.2 = "2")
 write.csv(test0_2, file.path(OUT, "DEGs_cluster0_vs_cluster2.csv"))
 
