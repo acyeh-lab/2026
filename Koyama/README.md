@@ -86,15 +86,25 @@ Exp80:   02_figS3_from_deposit.Rmd                     standalone
 `Exp649/02_fig7_figS11.Rmd` does **not** read the matrices — it reads
 `all_cells_processed.RDS` written by `01_figS10_qc.Rmd`, so that file runs first.
 
-### Knitting
+### Running them
 
-The code locates the package root by walking up for a `.ady3001_root` marker, so
-knit with `knit_root_dir` set to that root, or run from a directory beneath it.
-Results are written to `$ADY3001_OUT`, default `./ady3001_output`.
+**Edit one line.** Each file opens with a `DATA` line in its first chunk. Point
+it at wherever you downloaded that experiment's processed matrices from
+[GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009):
 
 ```r
-rmarkdown::render("Exp649/01_figS10_qc.Rmd", knit_root_dir = "<package root>")
+DATA <- "~/GSE348009/Exp160"     # must contain cartridge1/ and cartridge2/
 ```
+
+Nothing else needs changing — the file locates `common/` relative to itself, and
+writes output to `ady3001_output/` beside itself. Then knit in RStudio, or:
+
+```r
+rmarkdown::render("Exp160/01_fig4_figS6.Rmd")
+```
+
+If `DATA` is wrong the first chunk stops immediately and says so, rather than
+failing hundreds of lines later.
 
 ---
 
