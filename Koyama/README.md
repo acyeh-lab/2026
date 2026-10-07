@@ -17,24 +17,7 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 
 ---
 
-## The original R Markdown files, and the figures they generate
-
-These are the analysis notebooks as actually run. Three of them produce every
-scRNA-seq figure in the paper.
-
-| R Markdown | Author | Lines / chunks | Generates | Experiment |
-|---|---|---|---|---|
-| `Exp160/Exp160_Final.Rmd` | A. Yeh | 1,551 / 17 | **Fig 4B–D**, **Fig S6A–E**, **Fig S7B–E** | Exp160 |
-| `Exp649/Exp649_Final.Rmd` | A. Yeh | 829 / 10 | **Fig 7B–F**, **Fig S10A–D**, **Fig S11A–C** | Exp649 |
-| `Exp80/241221_Marilyn.Rmd` | S. Furlan | 155 / 6 | **Fig S3A–C** | Exp80 |
-
----
-
 ## The executable R Markdown files, the figures they generate, and what they read
-
-Transcribed from the notebooks above, path-parameterised, and verified to
-reproduce the published objects cell-for-cell. These are the ones to run.
-
 | Manuscript figure | Panels | R Markdown | Reads (processed file) | GEO sample |
 |---|---|---|---|---|
 | **Fig 4B–D** | 22 | `Exp160/01_fig4_figS6.Rmd` | `cartridge1_RSEC_MolsPerCell.csv`<br>`cartridge2_RSEC_MolsPerCell.csv` | GSM10065191<br>GSM10065192 |
