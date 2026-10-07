@@ -218,7 +218,6 @@ dev.off()
 ```{r s7c-published-cell-subset-signatures}
 custom_gene_sets <- list(
   Stem_Cell                = c("Lgr5","Olfm4","Slc12a2","Ascl2","Axin2","Gkn3"),
-  Transit_Amplifying_Cells = c("Olfm4","Scl12a2"),
   Goblet                   = c("Muc2","Agr2","Clca3","Tff3","Ang4","Defa31"),
   Tuft                     = c("Dclk1","Trpm5","Gnat3","CD24a","Krt8","Krt18","Gfi1b",
                                "Il25","Ptgs1","Alox5","Ptprc","Chat","Rac2"),
@@ -242,6 +241,7 @@ for (nm in names(custom_gene_sets)) {
 ## S7D: protein and gene-set panels, with per-cluster Wilcoxon
 
 ```{r s7d-protein-and-gene-set-panels-with-per-cluster-wilcoxon}
+options(warn = -1)
 suppressPackageStartupMessages({ library(msigdbr) })
 m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>%
   dplyr::select(gs_name, gene_symbol)
@@ -285,15 +285,6 @@ for (ab in c("I-A-I-E", "H-2Kb")) {
         stat_compare_means(comparisons = my_comparisons, method = "wilcox.test"))
   dev.off()
 }
-pdfout("[FigS7D] Markers ADT dotplot", 4, 6)
-print(DotPlot(seu, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()); dev.off()
-DefaultAssay(seu) <- "RNA"
-pdfout("[FigS7D] Markers GSEA dotplot", 4, 6)
-print(DotPlot(seu, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1",
-                                "MHC_CLASS_I_PROTEIN_COMPLEX1",
-                                "ANTIGEN_PROCESSING_AND_PRESENTATION1")) +
-      scale_x_discrete(labels = function(x) substr(x, 1, 15)) + RotatedAxis())
-dev.off()
 ```
 
 ## S7E: DEGs, cluster 0 (enterocyte WT) vs cluster 2 (enterocyte KO)
