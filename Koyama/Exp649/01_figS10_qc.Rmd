@@ -35,8 +35,7 @@ Output is written to
 
 ```{r paths}
 ## ==========  EDIT THIS ONE LINE  ==========
-DATA <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked/Exp649/data" 
-  #"~/GSE348009/Exp649"
+DATA <- "~/GSE348009/Exp649"
 ## ==========================================
 
 OUT <- "Exp649_figS10"
