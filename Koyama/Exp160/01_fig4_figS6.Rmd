@@ -27,6 +27,18 @@ Output is written to
 ## ==========  EDIT THIS ONE LINE  ==========
 DATA <- "~/GSE348009/Exp160"
 ## ==========================================
+
+OUT <- "Exp160_fig4_figS6"
+FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
+for (d in c(FIG, CDS)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+
+theme_set(bd_theme())
+rna_cols    <- bd_rna_cols()
+clus_cols36 <- bd_clus_cols36
+SEED <- 1234
+pdfout <- function(name, w = 6, h = 6) pdf(file.path(FIG, paste0(name, ".pdf")), width = w, height = h)
+
+cat("== Exp160 Fig 4 / S6 ==\n")
 ```
 
 ## Helper functions
@@ -125,9 +137,6 @@ bd_process_adt <- function(seu) {
 
 ## The continuous expression palette: ArchR::paletteContinuous(n=8)[c(1:3,6:8)].
 bd_rna_cols <- function() {
-  if (!requireNamespace("ArchR", quietly = TRUE))
-    stop("ArchR is not installed; it defines rna_cols (paletteContinuous). ",
-         "Run common/scripts/install_r_deps.sh first - do not substitute another palette.")
   ArchR::paletteContinuous(n = 8)[c(1:3, 6:8)]
 }
 
@@ -158,19 +167,6 @@ bd_session <- function(path) {
 }
 ```
 
-```{r output-paths}
-OUT <- "Exp160_fig4_figS6"
-FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
-for (d in c(FIG, CDS)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
-
-theme_set(bd_theme())
-rna_cols    <- bd_rna_cols()
-clus_cols36 <- bd_clus_cols36
-SEED <- 1234
-pdfout <- function(name, w = 6, h = 6) pdf(file.path(FIG, paste0(name, ".pdf")), width = w, height = h)
-
-cat("== Exp160 Fig 4 / S6 ==\n")
-```
 
 ## 1. load cart1 + cart2
 
