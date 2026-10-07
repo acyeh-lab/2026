@@ -1,36 +1,38 @@
 ---
-title: "Exp160 - Figure 4 and Figure S6"
+title: "Exp160 - Figure S7"
 author: "Koyama et al., Science Immunology"
 output: html_document
 ---
 
-# Exp160 — Figure 4 and Figure S6
-#Ileal intestinal epithelial cells from **cartridge1** (naive WT B6) and **cartridge2** (24 h post-TBI WT B6).
+# Exp160 — Figure S7
+
+# Ileal intestinal epithelial cells from **cartridge2** (24 h post-TBI WT B6) and **cartridge3** (24 h post-TBI MHC-II KO), re-clustered together.
 
 ```{r setup}
 suppressPackageStartupMessages({
   library(Seurat); library(ggplot2); library(dplyr); library(patchwork)
-  library(scCustomize); library(ggpubr); library(Matrix)
+  library(scCustomize); library(ggpubr); library(Matrix); library(ggrepel)
 })
 ```
 
 ## Setting up
+
 **Edit one line — `DATA`.** Download this experiment's processed matrices
 from NCBI GEO [GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009)
 to wherever you like and point `DATA` at that folder. It must contain
-`cartridge1/` and `cartridge2/`.
+`cartridge2/` and `cartridge3/`.
 
 Output is written to
-`Exp160_fig4_figS6/` in the working directory.
+`Exp160_figS7/` in the working directory.
 
 ```{r paths}
 ## ==========  EDIT THIS ONE LINE  ==========
-DATA <- "~/GSE348009/Exp160"
+DATA <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked/Exp160/data"
+# "~/GSE348009/Exp160"
 ## ==========================================
 ```
 
 ## Helper functions
-Loading and processing used below.
 ```{r functions}
 suppressPackageStartupMessages({
   library(Matrix)
@@ -59,7 +61,7 @@ bd_n_pabo <- function(path) {
 
 ## Read one or more cartridges into a single sparse matrix.
 ##   dirs      named character vector: name = cart prefix, value = directory
-##   n_pabo    expected number of AbSeq rows
+##   n_pabo    expected number of AbSeq rows 
 bd_load <- function(dirs, which = "RSEC", n_pabo = NULL) {
   paths <- vapply(dirs, bd_matrix_path, character(1), which = which)
   k <- unique(vapply(paths, bd_n_pabo, integer(1)))
@@ -159,138 +161,77 @@ bd_session <- function(path) {
 ```
 
 ```{r output-paths}
-OUT <- "Exp160_fig4_figS6"
+OUT <- "Exp160_figS7"
 FIG <- file.path(OUT, "figs"); CDS <- file.path(OUT, "cds")
 for (d in c(FIG, CDS)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
 
-theme_set(bd_theme())
-rna_cols    <- bd_rna_cols()
-clus_cols36 <- bd_clus_cols36
+theme_set(bd_theme()); rna_cols <- bd_rna_cols(); clus_cols36 <- bd_clus_cols36
 SEED <- 1234
-pdfout <- function(name, w = 6, h = 6) pdf(file.path(FIG, paste0(name, ".pdf")), width = w, height = h)
+pdfout <- function(n, w = 6, h = 6) pdf(file.path(FIG, paste0(n, ".pdf")), width = w, height = h)
 
-cat("== Exp160 Fig 4 / S6 ==\n")
+cat("== Exp160 Fig S7 ==\n")
 ```
 
-## 1. load cart1 + cart2
+## 1. load cart2 + cart3
 
-```{r sec1-load-cart1-cart2}
-dirs <- c(cart1 = file.path(DATA, "cartridge1"),
-          cart2 = file.path(DATA, "cartridge2"))
+```{r sec1-load-cart2-cart3}
+dirs <- c(cart2 = file.path(DATA, "cartridge2"),
+          cart3 = file.path(DATA, "cartridge3"))
 loaded <- bd_load(dirs, which = "RSEC", n_pabo = 4)
 seu <- bd_seurat(loaded)
 cat("   cells before filtering:", ncol(seu), "\n")
 ```
 
 ## 2. QC filter, then re-process
+
 ```{r sec2-qc-filter-then-re-process}
 
 seu <- bd_process(seu, dims = 1:40, resolution = 0.5, seed = SEED)
 cat("   first pass:", ncol(seu), "cells,",
     nlevels(seu$seurat_clusters), "clusters at resolution 0.5\n")
-seu_sub <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40)
-cat("   cells after filtering :", ncol(seu_sub))
-seu_sub <- bd_process(seu_sub, dims = 1:40, resolution = 0.15, seed = SEED)
-seu_sub <- bd_process_adt(seu_sub)
-saveRDS(seu_sub, file.path(CDS, "cart1_cart2_processed.RDS"))
-seu <- seu_sub
+seu <- subset(seu, subset = nCount_RNA > 1000 & nCount_RNA < 50000 & percent.mt < 40)
+cat("   cells after filtering :", ncol(seu), "   (expected 7,478 from 23,841)\n")
+seu <- bd_process(seu, dims = 1:40, resolution = 0.1, seed = SEED)
+seu <- bd_process_adt(seu)
+saveRDS(seu, file.path(CDS, "cart2_cart3_processed.RDS"))
+```
 
-## QC panels (not published, kept as the run's own evidence)
-pdfout("QC - violin by cartridge", 10, 4)
-print(VlnPlot(seu, features = c("nFeature_RNA","log_RNA","logUMI","percent.mt"),
-              group.by = "cart", ncol = 4, pt.size = 0))
+## S7B: embedding by group, by cluster, and cluster proportions
+
+```{r s7b-embedding-by-group-by-cluster-and-cluster-proportions}
+pdfout("[FigS7B] Cart2 v Cart3 by cart")
+print(DimPlot(seu, group.by = "cart")); dev.off()
+pdfout("[FigS7B] Cart2 v Cart3 clusters, res=0.1, dim=40")
+print(DimPlot(seu, cols = clus_cols36)); dev.off()
+
+## proportions bar - propeller / speckle, Phipson 2022 PMID 36005887
+suppressPackageStartupMessages({ library(speckle); library(limma) })
+pdf(file.path(FIG, "[FigS7B] Propeller_plots.pdf"), width = 3, height = 8)
+print(plotCellTypeProps(clusters = seu$seurat_clusters, sample = seu$cart) +
+      scale_fill_manual(values = clus_cols36[seq_len(nlevels(seu$seurat_clusters))]) +
+      theme_classic())
 dev.off()
 ```
 
-## 3. Figure 4B
+## S7C: published cell-subset signatures
 
-```{r sec3-figure-4b}
-pdfout("[Fig4B] Initial Clustering, res=0.15, dim=40")
-print(DimPlot(seu, cols = clus_cols36)); dev.off()
-pdfout("[Fig4B] Initial Clustering by cart")
-print(DimPlot(seu, group.by = "cart")); dev.off()
-
-```
-
-## 4. Figure 4C - MSigDB C5 module scores
-
-```{r sec4-figure-4c-msigdb-c5-module-scores}}
-options(warn = -1)
-suppressPackageStartupMessages({ library(msigdbr) })
-m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>%
-  dplyr::select(gs_name, gene_symbol)
-
-my_comparisons <- list(c("0","1"),c("0","2"),c("0","3"),c("0","4"),c("0","5"),c("0","6"))
-
-gs_panels <- list(
-  list(set = "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", name = "MHC_CLASS_II_PROTEIN_COMPLEX", ymax = 5),
-  list(set = "GOCC_MHC_CLASS_I_PROTEIN_COMPLEX",  name = "MHC_CLASS_I_PROTEIN_COMPLEX",  ymax = 2.5),
-  list(set = "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION",
-       name = "ANTIGEN_PROCESSING_AND_PRESENTATION", ymax = 1))
-
-DefaultAssay(seu) <- "RNA"
-for (p in gs_panels) {
-  genes <- m_t2g[m_t2g$gs_name == p$set, ]$gene_symbol
-  stopifnot(length(genes) > 0)
-  set.seed(SEED)
-  seu <- AddModuleScore(seu, features = list(genes), name = p$name)
-  feat <- paste0(p$name, "1")
-  pdfout(paste0("[Fig4C] ", p$set))
-  print(FeaturePlot_scCustom(seu, features = feat, label = FALSE, pt.size = 1,
-                             max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols))
-  dev.off()
-  pdfout(paste0("[Fig4C] ", p$set, " violin"))
-  print(VlnPlot(seu, features = feat, group.by = "seurat_clusters",
-                col = clus_cols36, pt.size = 0) +
-        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
-        stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") +
-        ylim(0, p$ymax))
-  dev.off()
-}
-```
-
-## 5. Figure 4D / S6B - surface protein
-
-```{r sec5-figure-4d-surface-protein}
-options(warn = -1)
-DefaultAssay(seu) <- "ADT"
-for (ab in list(list(f = "I-A-I-E", ymax = 12), list(f = "H-2Kb", ymax = 14))) {
-  pdfout(paste0("[Fig4D] ", ab$f))
-  print(FeaturePlot_scCustom(seu, features = ab$f, max.cutoff = "q99")); dev.off()
-  pdfout(paste0("[Fig4D] ", ab$f, " (violin)"))
-  print(VlnPlot(seu, features = ab$f, group.by = "seurat_clusters",
-                col = clus_cols36, pt.size = 0) +
-        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
-        stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") +
-        ylim(0, ab$ymax))
-  dev.off()
-}
-```
-
-## 6. Figure S6A - published cell-subset signatures
-
-Gene sets, from:
-  Grun 2015 PMID 26287467; Haber 2017 PMID 29144463; Biton 2018 PMID 30392957;
-  Hadjsombati 2018 PMID 30021144; Wang 2019 PMID 31753849; Zhao 2020 PMID 31900405;
-  Yin 2023 doi 10.1038/s41421-023-00578-4; Malagola 2024 (Atad2/Stmn1/Smarca5/Dek)
-```{r sec6-figure-s6a-published-cell-subset-signatures}
-options(warn = -1)
+```{r s7c-published-cell-subset-signatures}
 custom_gene_sets <- list(
   Stem_Cell                = c("Lgr5","Olfm4","Slc12a2","Ascl2","Axin2","Gkn3"),
+  Transit_Amplifying_Cells = c("Olfm4","Scl12a2"),
   Goblet                   = c("Muc2","Agr2","Clca3","Tff3","Ang4","Defa31"),
   Tuft                     = c("Dclk1","Trpm5","Gnat3","CD24a","Krt8","Krt18","Gfi1b",
                                "Il25","Ptgs1","Alox5","Ptprc","Chat","Rac2"),
   Paneth                   = c("Mptx1","Ang4","Defa31","Defa17","Defa24","Defa22","Lyz1","Itln1"),
   Enteroendocrine          = c("Reg4","Chga","Chgb","Tph1","Tac1","Neuro3"),
   Enterocytes              = c("Alpi","Apoa1","Apoa4","Fabp1"),
-  Partial_IEC              = c("Top2a","Apol10a","Car4","Ube2c"),
-  Malagola_2024            = c("Atad2","Stmn1","Smarca5","Dek"))
+  Partial_IEC              = c("Top2a","Apol10a","Car4","Ube2c"))
 
 DefaultAssay(seu) <- "RNA"
 for (nm in names(custom_gene_sets)) {
   set.seed(SEED)
   seu <- AddModuleScore(seu, features = list(custom_gene_sets[[nm]]), name = nm)
-  pdfout(paste0("[FigS6A] Custom ", nm))
+  pdfout(paste0("[FigS7C] Custom ", nm))
   print(FeaturePlot_scCustom(seu, features = paste0(nm, "1"), label = FALSE,
                              pt.size = 1, max.cutoff = "q99") +
         scale_color_gradientn(colors = rna_cols))
@@ -298,59 +239,103 @@ for (nm in names(custom_gene_sets)) {
 }
 ```
 
-## 7. Figure S6C - ISC / progenitor markers
+## S7D: protein and gene-set panels, with per-cluster Wilcoxon
 
-```{r sec7-figure-s6c-isc-progenitor-markers}
-for (g in c("Lgr5","Lgr4","Fgfbp1")) {
-  pdfout(paste0("[FigS6C] ", g)); print(FeaturePlot_scCustom(seu, features = g)); dev.off()
+```{r s7d-protein-and-gene-set-panels-with-per-cluster-wilcoxon}
+suppressPackageStartupMessages({ library(msigdbr) })
+m_t2g <- msigdbr(species = "Mus musculus", category = "C5") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+lv <- levels(seu$seurat_clusters)
+my_comparisons <- lapply(setdiff(lv, "0"), function(x) c("0", x))
+cat("   clusters:", paste(lv, collapse = ","), "\n")
+
+gs_panels <- list(
+  list(set = "GOCC_MHC_CLASS_II_PROTEIN_COMPLEX", name = "MHC_CLASS_II_PROTEIN_COMPLEX", ymax = 7),
+  list(set = "GOCC_MHC_CLASS_I_PROTEIN_COMPLEX",  name = "MHC_CLASS_I_PROTEIN_COMPLEX",  ymax = 3),
+  list(set = "GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION",
+       name = "ANTIGEN_PROCESSING_AND_PRESENTATION", ymax = 1.2))
+
+for (p in gs_panels) {
+  genes <- m_t2g[m_t2g$gs_name == p$set, ]$gene_symbol
+  set.seed(SEED)
+  seu <- AddModuleScore(seu, features = list(genes), name = p$name)
+  feat <- paste0(p$name, "1")
+  pdfout(paste0("[FigS7D] ", p$set))
+  print(FeaturePlot_scCustom(seu, features = feat, label = FALSE, pt.size = 1,
+                             max.cutoff = "q99") + scale_color_gradientn(colors = rna_cols))
+  dev.off()
+  pdfout(paste0("[FigS7D] ", p$set, " violin"))
+  print(VlnPlot(seu, features = feat, group.by = "seurat_clusters",
+                col = clus_cols36, pt.size = 0) +
+        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+        stat_compare_means(comparisons = my_comparisons, method = "wilcox.test") +
+        ylim(0, p$ymax))
+  dev.off()
 }
-```
 
-## 8. Figure S6D/E - dot plots
-
-```{r sec8-figure-s6d-e-dot-plots}
+DefaultAssay(seu) <- "ADT"
+for (ab in c("I-A-I-E", "H-2Kb")) {
+  pdfout(paste0("[FigS7D] ", ab))
+  print(FeaturePlot_scCustom(seu, features = ab, max.cutoff = "q99")); dev.off()
+  pdfout(paste0("[FigS7D] ", ab, " (violin)"))
+  print(VlnPlot(seu, features = ab, group.by = "seurat_clusters",
+                col = clus_cols36, pt.size = 0) +
+        stat_summary(fun = median, geom = "point", size = 10, colour = "black", shape = 95) +
+        stat_compare_means(comparisons = my_comparisons, method = "wilcox.test"))
+  dev.off()
+}
+pdfout("[FigS7D] Markers ADT dotplot", 4, 6)
+print(DotPlot(seu, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()); dev.off()
 DefaultAssay(seu) <- "RNA"
-pdfout("[FigS6D] Markers GSEA dotplot", 4, 6)
+pdfout("[FigS7D] Markers GSEA dotplot", 4, 6)
 print(DotPlot(seu, features = c("MHC_CLASS_II_PROTEIN_COMPLEX1",
                                 "MHC_CLASS_I_PROTEIN_COMPLEX1",
                                 "ANTIGEN_PROCESSING_AND_PRESENTATION1")) +
       scale_x_discrete(labels = function(x) substr(x, 1, 15)) + RotatedAxis())
 dev.off()
-DefaultAssay(seu) <- "ADT"
-pdfout("[FigS6E] Markers ADT dotplot", 4, 6)
-print(DotPlot(seu, features = c("I-A-I-E", "H-2Kb")) + RotatedAxis()); dev.off()
-DefaultAssay(seu) <- "RNA"
 ```
 
-## 9. Figure S6B - Monocle3 pseudotime
+## S7E: DEGs, cluster 0 (enterocyte WT) vs cluster 2 (enterocyte KO)
 
-The pseudotime root is the stem-cell cluster, as stated in the Figure S6B
-legend. It is identified as the cluster with the highest mean Stem_Cell module
-score, and the root is the principal-graph vertex closest to that cluster's
-UMAP centroid.
+```{r s7e-degs-cluster-0-vs-cluster-2}
+DefaultAssay(seu) <- "RNA"
+stopifnot(all(c("0","2") %in% lv))
+test0_2 <- FindMarkers(seu, ident.1 = "0", ident.2 = "2")
+write.csv(test0_2, file.path(OUT, "DEGs_cluster0_vs_cluster2.csv"))
 
-```{r sec9-figure-s6b-monocle3-pseudotime}
-suppressPackageStartupMessages({ library(monocle3); library(SeuratWrappers) })
-set.seed(SEED)
-cds <- as.cell_data_set(seu)
-cds <- cluster_cells(cds, resolution = 1e-3)   # monocle3's default random_seed
-cds <- learn_graph(cds, use_partition = TRUE, close_loop = TRUE)
-cds@clusters@listData[["UMAP"]][["clusters"]] <- clusters(cds)
+de <- data.frame(delabel        = rownames(test0_2),
+                 diffexpressed  = test0_2$p_val_adj < 0.05,
+                 log2FoldChange = test0_2$avg_log2FC,
+                 pvalue         = test0_2$p_val)      # see header note re test0_1
+de$pvalue[de$pvalue == 0] <- .Machine$double.xmin
+neg_col <- "#00BFC4"; pos_col <- "#F8766D"
+de_df <- de %>% filter(diffexpressed) %>%
+  mutate(color = ifelse(log2FoldChange < 0, neg_col,
+                 ifelse(log2FoldChange > 0, pos_col, "grey70")))
+cat("   DE genes at padj<0.05:", nrow(de_df), "\n")
 
-stem_score  <- tapply(seu$Stem_Cell1, seu$seurat_clusters, mean)
-stem_clust  <- names(which.max(stem_score))
-cat("   pseudotime root cluster (highest Stem_Cell score):", stem_clust,
-    sprintf("(score %.3f)\n", max(stem_score)))
-centroid <- colMeans(Embeddings(seu, "umap")[seu$seurat_clusters == stem_clust, , drop = FALSE])
-vertices <- t(cds@principal_graph_aux[["UMAP"]]$dp_mst)
-root_vertex <- rownames(vertices)[which.min(colSums((t(vertices) - centroid)^2))]
-cds <- order_cells(cds, root_pr_nodes = root_vertex)
-seu$pseudotime <- pseudotime(cds)
+for (n in c(30, 150)) {
+  top <- de_df %>% arrange(pvalue) %>% slice_head(n = n)
+  pdfout(paste0("[FigS7E] DEG cluster 0v2 top ", n))
+  print(ggplot(de_df, aes(x = log2FoldChange, y = -log10(pvalue), color = color)) +
+          geom_point(size = 1.8) +
+          ggrepel::geom_text_repel(data = top, aes(label = delabel), max.overlaps = Inf,
+                                   box.padding = 0.4, point.padding = 0.2,
+                                   segment.alpha = 0.5, seed = 123) +
+          scale_color_identity(guide = "none") + theme_bw() +
+          labs(x = "log2 fold-change", y = "-log10(p-value)"))
+  dev.off()
+}
 
-pdfout("[FigS6B] Pseudotime")
-print(FeaturePlot(seu, features = "pseudotime") +
-      scale_color_gradientn(colors = viridis::plasma(n = 10)))
+pdf(file.path(FIG, "[FigS7E] top DEGs featureplots.pdf"), width = 12, height = 16)
+print(FeaturePlot_scCustom(seu, features = c("Dmbt1","Ubd","Saa1","Reg3b","Reg3g","Rnf186"),
+                           max.cutoff = "q99", colors_use = rna_cols, pt.size = 0.2))
 dev.off()
 
-saveRDS(seu, file.path(CDS, "cart1_cart2_scored.RDS"))
+saveRDS(seu, file.path(CDS, "cart2_cart3_scored.RDS"))
+write.csv(as.data.frame(table(cluster = seu$seurat_clusters, cartridge = seu$cart)),
+          file.path(OUT, "cluster_by_cartridge.csv"), row.names = FALSE)
+bd_session(file.path(OUT, "sessionInfo.txt"))
+cat("== done ->", OUT, "\n")
 ```
