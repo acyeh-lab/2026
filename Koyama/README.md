@@ -27,67 +27,22 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 | **Fig 7B–F + Fig S11A–C** | 39 | `Exp649/02_fig7_figS11.Rmd` | `all_cells_processed.RDS`<br>*(written by `01_figS10_qc.Rmd`)* | — |
 | **Fig S3A–C** | 5 | `Exp80/02_figS3_from_deposit.Rmd` | the four `*_SampleTag0{5,6,7,8}_mm_RSEC_MolsPerCell.csv`<br>**or** `Combined_…_RSEC_MolsPerCell.csv` + `…_Sample_Tag_Calls.csv` | GSM10065196 |
 
-**124 panels total** (122 PDF + 2 PNG); 8 are QC plots, not manuscript panels.
-
-Each file is chunked by figure, with an H2 heading and a navigable table of
-contents in the knitted HTML, so a given panel can be found, re-run and
-commented on in isolation. For example `01_fig4_figS6.Rmd` carries chunks
-`sec3-figure-4b`, `sec4-figure-4c-msigdb-c5-module-scores` and
-`sec7-figure-s6c-isc-progenitor-markers`.
-
-Two figures cannot be given their own file. Fig 7 and Fig S11 share one row
-because 11 panels are Fig 7 only, 10 are Fig S11 only and **18 are labelled as
-spanning both**; likewise `01_fig4_figS6.Rmd` produces Fig 4 and Fig S6 from a
-single clustering. Splitting either would require re-clustering.
-
 ### Notes on the inputs
-
-`cartridge2` is read by **both** Exp160 files and re-clustered separately in
-each — intentional, not duplication.
-
 **RSEC, not DBEC.** WTA Rhapsody applies RSEC only; the `_DBEC_` files are
-deposited for completeness and read by nothing here. Exp80 is a *targeted*
-panel, where DBEC would be meaningful — but the published analysis read RSEC, so
-RSEC is what these files use.
-
-**Fig S3 is derived two independent ways** and the two agree byte-for-byte: from
-the four deposited per-tag matrices, and from the deposited Combined matrix
-split by `Sample_Tag_Calls.csv`.
-
-A GEO download is flat; these files expect per-cartridge directories
-(`cartridge1/`…, and `Cart1/`/`Cart2/` with a capital C for Exp649) under
-`$ADY3001_DATA`. `tools/unpack_geo_download.sh` builds that tree.
-
-### Run order
-
-```
-Exp160:  01_fig4_figS6.Rmd   and   02_figS7.Rmd        independent
-Exp649:  01_figS10_qc.Rmd   ──►   02_fig7_figS11.Rmd   SEQUENTIAL
-Exp80:   02_figS3_from_deposit.Rmd                     standalone
-```
-
-`Exp649/02_fig7_figS11.Rmd` does **not** read the matrices — it reads
-`all_cells_processed.RDS` written by `01_figS10_qc.Rmd`, so that file runs first.
+deposited for completeness and read by nothing here. 
 
 ### Running them
-
 **Edit one line.** Each file opens with a `DATA` line in its first chunk. Point
 it at wherever you downloaded that experiment's processed matrices from
 [GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009):
-
 ```r
 DATA <- "~/GSE348009/Exp160"     # must contain cartridge1/ and cartridge2/
 ```
-
-Nothing else needs changing — the file locates `common/` relative to itself, and
-writes output to `ady3001_output/` beside itself. Then knit in RStudio, or:
 
 ```r
 rmarkdown::render("Exp160/01_fig4_figS6.Rmd")
 ```
 
-If `DATA` is wrong the first chunk stops immediately and says so, rather than
-failing hundreds of lines later.
 
 ---
 
