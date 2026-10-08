@@ -34,6 +34,7 @@ it at wherever you downloaded that experiment's processed matrices from
 ```r
 DATA <- "~/GSE348009/Exp160"     # must contain cartridge1/ and cartridge2/
 ```
+Within Exp649, run 01_figS10_qc.Rmd before 02_fig7_figS11.Rmd 
 
 ### Reproducibility:
 Running these files reproduces every cell count, cluster assignment and expression value. UMAP embeddings may differ between computing environments; the clusters they display are identical.
