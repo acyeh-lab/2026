@@ -22,7 +22,7 @@ Output is written to
 
 ```{r paths}
 ## ==========  EDIT THIS ONE LINE  ==========
-DATA <- "~/GSE348009/Exp80""
+DATA <- "~/GSE348009/Exp80"
 ## ==========================================
 ```
 
