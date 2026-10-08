@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the article and this archive."
+title: "Analysis code for Koyama et al., IFN-gamma-driven MHC class II expression by intestinal epithelial cells dictates local cytolytic Th1 differentiation and intestinal stem cell loss"
+abstract: >-
+  Single-cell RNA-sequencing analysis code for Koyama et al. (Science
+  Immunology). Regenerates Figures 4, 7, S3, S6, S7, S10 and S11 from the
+  processed matrices deposited in NCBI GEO under accession GSE348009. Five
+  self-contained R Markdown files, one per figure group, each requiring a
+  single edited path.
+type: software
+version: "1.0.0"
+license: MIT
+authors:
+  - family-names: Yeh
+    given-names: Albert C.
+    affiliation: "Fred Hutchinson Cancer Center"
+  - family-names: Koyama
+    given-names: Motoko
+    affiliation: "Fred Hutchinson Cancer Center"
+  - family-names: Hill
+    given-names: Geoffrey R.
+    affiliation: "Fred Hutchinson Cancer Center"
+  - family-names: Furlan
+    given-names: Scott N.
+    affiliation: "Fred Hutchinson Cancer Center"
+keywords:
+  - single-cell RNA sequencing
+  - graft-versus-host disease
+  - intestinal stem cells
+  - MHC class II
+  - interferon gamma
+  - BD Rhapsody
+identifiers:
+  - type: other
+    value: "GSE348009"
+    description: "NCBI GEO accession for the underlying data"
