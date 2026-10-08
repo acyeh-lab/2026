@@ -28,7 +28,7 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 | **Fig S3A–C** | `Exp80/01_figS3.Rmd` | `Combined_…_RSEC_MolsPerCell.csv` + `…_Sample_Tag_Calls.csv` | GSM10065196 |
 
 ### Running them
-**Edit one line.** Each file opens with a `DATA` line in its first chunk. Point
+Each file opens with a `DATA` line in its first chunk. Point
 it at wherever you downloaded that experiment's processed matrices from
 [GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009):
 ```r
