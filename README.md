@@ -1,6 +1,6 @@
 # 2026
 
-Analysis code for 2026 manuscripts from the Yeh / Hill labs. One directory per
+Analysis code for 2026 manuscripts from the Yeh lab. One directory per
 manuscript.
 
 | Directory | Manuscript | Data |
