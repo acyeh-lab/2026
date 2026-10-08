@@ -25,7 +25,7 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 | **Fig S7B–E** | `Exp160/02_figS7.Rmd` | `cartridge2_RSEC_MolsPerCell.csv`<br>`cartridge3_RSEC_MolsPerCell.csv` | GSM10065192<br>GSM10065193 |
 | **Fig S10A–D** | `Exp649/01_figS10_qc.Rmd` | `Cart1_RSEC_MolsPerCell.csv`<br>`Cart2_RSEC_MolsPerCell.csv` | GSM10065194<br>GSM10065195 |
 | **Fig 7B–F + Fig S11A–C** | `Exp649/02_fig7_figS11.Rmd` | `all_cells_processed.RDS`<br>*(written by `01_figS10_qc.Rmd`)* | — |
-| **Fig S3A–C** | `Exp80/02_figS3_from_deposit.Rmd` | the four `*_SampleTag0{5,6,7,8}_mm_RSEC_MolsPerCell.csv`<br>**or** `Combined_…_RSEC_MolsPerCell.csv` + `…_Sample_Tag_Calls.csv` | GSM10065196 |
+| **Fig S3A–C** | `Exp80/01_figS3.Rmd` | `Combined_…_RSEC_MolsPerCell.csv` + `…_Sample_Tag_Calls.csv` | GSM10065196 |
 
 ### Running them
 **Edit one line.** Each file opens with a `DATA` line in its first chunk. Point
