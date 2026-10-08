@@ -9,7 +9,7 @@ Analysis code for:
 | | |
 |---|---|
 | **Data** | NCBI GEO [GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009) |
-| **Code archive** | Zenodo DOI `10.5281/zenodo.23230453` |
+| **Code archive** | Zenodo DOI `10.5281/zenodo.23230452` |
 | **Platform** | BD Rhapsody WTA + AbSeq (Exp160, Exp649); BD Rhapsody targeted panel (Exp80) |
 
 Everything here regenerates from the **processed expression matrices deposited
