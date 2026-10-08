@@ -21,7 +21,7 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 | Manuscript figure  | R Markdown | Reads (processed file) | GEO sample |
 |---|---|---|---|
 | **Fig 4B–D** | `Exp160/01_fig4_figS6.Rmd` | `cartridge1_RSEC_MolsPerCell.csv`<br>`cartridge2_RSEC_MolsPerCell.csv` | GSM10065191<br>GSM10065192 |
-| **Fig S6A–E** | `Exp160/01_fig4_figS6.Rmd` | *(same as above)* | GSM10065191<br>GSM10065192 |
+| **Fig S6A–E** | `Exp160/01_fig4_figS6.Rmd` | `cartridge1_RSEC_MolsPerCell.csv`<br>`cartridge2_RSEC_MolsPerCell.csv` | GSM10065191<br>GSM10065192 |
 | **Fig S7B–E** | `Exp160/02_figS7.Rmd` | `cartridge2_RSEC_MolsPerCell.csv`<br>`cartridge3_RSEC_MolsPerCell.csv` | GSM10065192<br>GSM10065193 |
 | **Fig S10A–D** | `Exp649/01_figS10_qc.Rmd` | `Cart1_RSEC_MolsPerCell.csv`<br>`Cart2_RSEC_MolsPerCell.csv` | GSM10065194<br>GSM10065195 |
 | **Fig 7B–F + Fig S11A–C** | `Exp649/02_fig7_figS11.Rmd` | `all_cells_processed.RDS`<br>*(written by `01_figS10_qc.Rmd`)* | — |
