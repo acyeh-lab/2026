@@ -27,10 +27,6 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 | **Fig 7B–F + Fig S11A–C** | `Exp649/02_fig7_figS11.Rmd` | `all_cells_processed.RDS`<br>*(written by `01_figS10_qc.Rmd`)* | — |
 | **Fig S3A–C** | `Exp80/02_figS3_from_deposit.Rmd` | the four `*_SampleTag0{5,6,7,8}_mm_RSEC_MolsPerCell.csv`<br>**or** `Combined_…_RSEC_MolsPerCell.csv` + `…_Sample_Tag_Calls.csv` | GSM10065196 |
 
-### Notes on the inputs
-**RSEC, not DBEC.** WTA Rhapsody applies RSEC only; the `_DBEC_` files are
-deposited for completeness and read by nothing here. 
-
 ### Running them
 **Edit one line.** Each file opens with a `DATA` line in its first chunk. Point
 it at wherever you downloaded that experiment's processed matrices from
