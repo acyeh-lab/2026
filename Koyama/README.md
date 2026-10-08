@@ -17,7 +17,7 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 
 ---
 
-## The executable R Markdown files, the figures they generate, and what they read
+## The executable R Markdown files, the figures they generate, and GEO files read
 | Manuscript figure  | R Markdown | Reads (processed file) | GEO sample |
 |---|---|---|---|
 | **Fig 4B–D** | `Exp160/01_fig4_figS6.Rmd` | `cartridge1_RSEC_MolsPerCell.csv`<br>`cartridge2_RSEC_MolsPerCell.csv` | GSM10065191<br>GSM10065192 |
@@ -36,5 +36,5 @@ DATA <- "~/GSE348009/Exp160"     # must contain cartridge1/ and cartridge2/
 ```
 Within Exp649, run 01_figS10_qc.Rmd before 02_fig7_figS11.Rmd 
 
-### Reproducibility:
+### Reproducibility
 Running these files reproduces every cell count, cluster assignment and expression value. UMAP embeddings may differ between computing environments; the clusters they display are identical.
