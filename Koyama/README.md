@@ -19,7 +19,7 @@ in GEO**. Three independent single-cell experiments comprise seven figures in th
 
 ## The executable R Markdown files, the figures they generate, and what they read
 | Manuscript figure  | R Markdown | Reads (processed file) | GEO sample |
-|---|---|---|---|---|
+|---|---|---|---|
 | **Fig 4B–D** | `Exp160/01_fig4_figS6.Rmd` | `cartridge1_RSEC_MolsPerCell.csv`<br>`cartridge2_RSEC_MolsPerCell.csv` | GSM10065191<br>GSM10065192 |
 | **Fig S6A–E** | `Exp160/01_fig4_figS6.Rmd` | *(same as above — one clustering)* | GSM10065191<br>GSM10065192 |
 | **Fig S7B–E** | `Exp160/02_figS7.Rmd` | `cartridge2_RSEC_MolsPerCell.csv`<br>`cartridge3_RSEC_MolsPerCell.csv` | GSM10065192<br>GSM10065193 |
