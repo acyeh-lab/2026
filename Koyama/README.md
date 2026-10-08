@@ -36,5 +36,4 @@ DATA <- "~/GSE348009/Exp160"     # must contain cartridge1/ and cartridge2/
 ```
 
 ### Reproducibility:
-Running these files reproduces every cell count, cluster assignment and expression value exactly, cluster-for-cluster. UMAP is a stochastic projection with no canonical orientation,
-and embeddings differ between computing environments; the clusters they display are identical.
+Running these files reproduces every cell count, cluster assignment and expression value exactly, cluster-for-cluster. UMAP embeddings may differ between computing environments; the clusters they display are identical.
