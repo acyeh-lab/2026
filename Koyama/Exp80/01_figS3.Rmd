@@ -1,0 +1,120 @@
+---
+title: "Exp80 - Figure S3"
+author: "Koyama et al., Science Immunology"
+output: html_document
+---
+
+# Exp80 — Figure S3
+
+# Ileal Marilyn donor CD4+ T cells, day 7 post-transplant. BD Rhapsody targeted panel (MM Immune Response amplicons).
+Four sample tags: **SampleTag05 and 06 are lamina propria (LP)**, **SampleTag07 and 08 are epithelial layer (EL)** 
+
+## Setting up
+
+**Edit one line — `DATA`.** Download this experiment's processed matrices
+from NCBI GEO [GSE348009](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE348009)
+to wherever you like and point `DATA` at that folder. It must contain
+`Combined_mRNA-ST-GCTACGCT_RSEC_MolsPerCell.csv` and
+`mRNA-ST-GCTACGCT_Sample_Tag_Calls.csv`.
+
+Output is written to
+`Exp80_figS3/` in the working directory.
+
+```{r paths}
+## ==========  EDIT THIS ONE LINE  ==========
+DATA <- "/fh/fast/hill_g/Albert/scSeq_ST_Analyses/BD_Rhapsody_Motoko_ISC_2024/Rebuild/geo/clean_room/unpacked/Exp80/data"
+  #"~/GSE348009/Exp80"
+## ==========================================
+```
+
+```{r setup}
+suppressPackageStartupMessages({
+  library(Seurat); library(ggplot2); library(dplyr); library(Matrix)
+  library(scCustomize); library(data.table)
+})
+
+OUT <- "Exp80_figS3"
+FIG  <- file.path(OUT, "figs")
+for (d in c(OUT, FIG)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+cat("== Exp80 Figure S3 ==\n")
+
+read_bd <- function(f) t(as.matrix(data.table::fread(f), rownames = 1))
+```
+
+## 1. load the eight sample tags
+
+```{r sec1-load-sample-tags}
+tags  <- sprintf("SampleTag%02d", 1:8)
+comb  <- read_bd(file.path(DATA, "Combined_mRNA-ST-GCTACGCT_RSEC_MolsPerCell.csv"))
+calls <- data.table::fread(file.path(DATA, "mRNA-ST-GCTACGCT_Sample_Tag_Calls.csv"))
+dat <- lapply(tags, function(t) {
+  idx <- as.character(calls$Cell_Index[calls$Sample_Tag == paste0(t, "_mm")])
+  comb[, colnames(comb) %in% idx, drop = FALSE]
+})
+for (i in seq_along(dat))
+  cat(sprintf("   %s  %5d cells  %4d features\n", tags[i], ncol(dat[[i]]), nrow(dat[[i]])))
+```
+
+## 2. subset to LP and EL, process, and draw the panels
+
+```{r sec2-build-and-process}
+dat2 <- lapply(dat, function(m) {
+  rownames(m) <- sapply(strsplit(rownames(m), "\\|"), "[[", 1); m })
+mat  <- Matrix(do.call(cbind, dat2), sparse = TRUE)
+colnames(mat) <- make.unique(colnames(mat))
+meta <- data.frame(
+  cell.names = colnames(mat),
+  sample_no  = unlist(lapply(seq_along(tags), function(x) rep(tags[x], ncol(dat[[x]])))),
+  row.names  = colnames(mat))
+meta$sample <- factor(meta$sample_no)
+levels(meta$sample) <- c(rep("Spl", 2), rep("mLN", 2), rep("LP", 2), rep("EL", 2))
+cat("cells per tag:\n"); print(table(meta$sample_no))
+cat("\ncells per compartment:\n"); print(table(meta$sample))
+
+genes <- data.frame(
+  id              = sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 2),
+  gene_short_name = sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 1),
+  row.names       = make.unique(sapply(strsplit(rownames(dat[[1]]), "\\|"), "[[", 1)))
+rownames(genes) <- genes$id
+rownames(mat)   <- rownames(genes)
+
+seu <- CreateSeuratObject(mat, meta.data = meta)
+seu <- seu[, seu$sample %in% c("LP", "EL")]
+cat("\ncells:", ncol(seu), "\n")
+cat("  LP:", sum(seu$sample == "LP"), "  EL:", sum(seu$sample == "EL"), "\n")
+cat("genes:", nrow(seu), "\n\n")
+
+seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(seu, nfeatures = 3000)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu))
+seu <- FindNeighbors(seu, dims = 1:20)
+seu <- FindClusters(seu, resolution = 1)
+seu <- RunUMAP(seu, dims = 1:20)
+rownames(seu) <- genes$gene_short_name
+
+pdf(file.path(FIG, "figS3A_UMAP_by_sample.pdf"), width = 7, height = 5)
+print(DimPlot(seu, group.by = "sample")); dev.off()
+png(file.path(FIG, "figS3A_UMAP_by_sample.png"), width = 1400, height = 1050, res = 150)
+print(DimPlot(seu, group.by = "sample")); dev.off()
+
+dot_genes <- c("Tbx21","Rorc","Ifng","Il17a","Nkg7","Gzmb","Gzma","Fasl","Tnfsf10")
+dp <- scCustomize::DotPlot_scCustom(seu, features = rev(dot_genes),
+                                    group.by = "sample", flip_axes = TRUE)
+pdf(file.path(FIG, "figS3B_dotplot.pdf"), width = 7, height = 6); print(dp); dev.off()
+png(file.path(FIG, "figS3B_dotplot.png"), width = 1400, height = 1200, res = 150)
+print(dp); dev.off()
+
+featg <- c("Nkg7","Prf1","Gzmb","Gzma","Gzmk","Gzmm","Ifng","Il17a","Il17f",
+           "Tnfsf10","Fasl","Tbx21","Rorc")
+pdf(file.path(FIG, "figS3C_featureplots.pdf"), width = 6, height = 6)
+for (g in featg) if (g %in% rownames(seu)) print(FeaturePlot_scCustom(seu, g))
+dev.off()
+
+d <- dp$data
+write.csv(d, file.path(OUT, "figS3B_dotplot_values.csv"), row.names = FALSE)
+
+saveRDS(seu, file.path(OUT, "exp80_figS3.RDS"))
+writeLines(capture.output(sessionInfo()), file.path(OUT, "sessionInfo.txt"))
+cat("== done ->", OUT, "\n")
+```
