@@ -39,40 +39,6 @@ it at wherever you downloaded that experiment's processed matrices from
 DATA <- "~/GSE348009/Exp160"     # must contain cartridge1/ and cartridge2/
 ```
 
-```r
-rmarkdown::render("Exp160/01_fig4_figS6.Rmd")
-```
-
-
----
-
-## Version manifests
-
-One YAML per experiment. Each is **generated** by parsing the recorded
-`sessionInfo`, not typed by hand, and the generator fails if the R environment
-is inconsistent or a package appears at two versions.
-
-| File | R / Seurat | BD pipeline | Contents |
-|---|---|---|---|
-| `Exp160/Exp160_versions.yaml` | 4.4.0 / 5.1.0 | **1.9.1** | 2 scripts, 177 indirect packages, 9 inputs with md5 |
-| `Exp649/Exp649_versions.yaml` | 4.4.0 / 5.1.0 | **1.10.1** | 2 scripts, 137 indirect packages, 8 inputs with md5 |
-| `Exp80/Exp80_versions.yaml` | **two environments** | **1.8** | 11 inputs with md5, 7 caveats |
-| `r_packages.yml` | — | — | all 195 R packages at recorded versions, for install |
-| `environment.yml` | — | — | the conda environment |
-
-Each carries `environments:` (R version, platform, BLAS, attached packages per
-script, and the indirect `namespace:` set — `fgsea`, `Matrix` and `presto` all
-affect numbers), `bd_rhapsody:`, `reads:`, `inputs:` with sizes and md5,
-`expected_results:` with exact cell and cluster counts, and `caveats:`.
-
-**Exp80 has two environment blocks, deliberately.** `original_2024` is
-R 4.3.2 / Seurat 5.0.0 on macOS — recovered from the rendered
-`241221_Marilyn.html`, and the **only original `sessionInfo` that exists for any
-published analysis in this paper**. `deposit_rerun` is R 4.4.0 / Seurat 5.1.0 on
-Linux. They differ, which makes the Fig S3 reproduction a deliberate
-version-*drift* test rather than a version-matched run.
-
----
 
 ## Layout
 
