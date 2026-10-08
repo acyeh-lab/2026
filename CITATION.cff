@@ -17,11 +17,11 @@ authors:
   - family-names: Koyama
     given-names: Motoko
     affiliation: "Fred Hutchinson Cancer Center"
-  - family-names: Hill
-    given-names: Geoffrey R.
-    affiliation: "Fred Hutchinson Cancer Center"
   - family-names: Furlan
     given-names: Scott N.
+    affiliation: "Fred Hutchinson Cancer Center"
+  - family-names: Hill
+    given-names: Geoffrey R.
     affiliation: "Fred Hutchinson Cancer Center"
 keywords:
   - single-cell RNA sequencing
